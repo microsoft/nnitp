@@ -3,8 +3,8 @@
    You can adapt this file completely to your liking, but it should at least
    contain the root `toctree` directive.
 
-nnitp: Neural net interpretability with Baysian interpolants
-=================================
+nnitp: Neural net interpretability with Bayesian interpolants
+============================================================
 
 Nnitp is a tool for interpretability of neural network inferences
 using Bayesian interpolants. The basic technique is described in
