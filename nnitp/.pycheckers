@@ -1,0 +1,2 @@
+[DEFAULT]
+checkers = pyflakes,mypy3
