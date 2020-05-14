@@ -20,7 +20,7 @@
 project = 'nnitp'
 copyright = '2020, Kenneth L. McMillan'
 author = 'Kenneth L. McMillan'
-
+master_doc = 'index'
 
 # -- General configuration ---------------------------------------------------
 
