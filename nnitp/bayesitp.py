@@ -2,15 +2,14 @@
 # Copyright (c) Microsoft Corporation.
 #
 
-import model_mgr
+from model_mgr import unflatten_unit, compute_activation
 import numpy as np
 import math
-from keras.layers import Conv2D, Flatten, MaxPooling2D, Dense
-from itp import is_max,log_file,write_summary,itp_pred, bound, Predicate, LayerPredicate
+from itp import itp_pred, bound, LayerPredicate
 from itp import BoundPredicate, And
 import time
 import random
-from typing import Tuple, List
+from typing import Tuple, List, Optional
 
 #
 # Code for computing Bayesian interpolants.
@@ -58,7 +57,7 @@ class ModelEval(object):
         if idx in self.eval_cache:
             return self.eval_cache[idx]
         print("evaluating layer {}".format(idx))
-        res = model_mgr.compute_activation(self.model,idx,self.data)
+        res = compute_activation(self.model,idx,self.data)
         print("done")
         self.eval_cache[idx] = res
         print (res.shape)
@@ -66,6 +65,9 @@ class ModelEval(object):
     def set_pred(self,idx,p):
         self.split_cache = dict()
         self.cond = vect_eval(p,self.eval(idx))
+    def set_layer_pred(self,lp):
+        self.split_cache = dict()
+        self.cond = lp.eval(self)
     def split(self,idx):
         if idx in self.split_cache:
             return self.split_cache[idx]
@@ -78,7 +80,7 @@ class ModelEval(object):
         return np.compress(self.cond,np.arange(len(self.cond)))
     def eval_one(self,idx,input):
         data = input.reshape(1,*input.shape)
-        return model_mgr.compute_activation(self.model,idx,data)[0]
+        return compute_activation(self.model,idx,data)[0]
 
         
 #
@@ -229,7 +231,7 @@ def ndseparator(x,onset,offset,epsilon,gamma,mu) -> List[Tuple[Tuple,float,bool]
         res = [(unflatten_unit(shape,idx),val,pos) for idx,val,pos in res]
     else:
         res = [((idx,),val,pos) for idx,val,pos in res]
-    return res
+    return res # type: ignore
     
 #
 # Same as above, but separator is expressed only over a slice `cone`
@@ -274,17 +276,20 @@ def interpolant_int(train_eval,test_eval,l1,x,l2,pred,
     describe_error("training",train_error)
     test_error = check_itp(test_eval,l1,itp_pred(res),l2,pred)
     describe_error("test",test_error)
-    if show_predictions:
-        show_positives(train_eval,l1,itp_pred(res),l2,pred,10,res)
+#    if show_predictions:
+#        show_positives(train_eval,l1,itp_pred(res),l2,pred,10,res)
     return res,train_error,test_error
 
 ttime = 0.0
 
 def interpolant(train_eval:ModelEval,test_eval:ModelEval,l1:int,inp:np.ndarray,
-                lpred:LayerPredicate,
-                epsilon:float=0.05,gamma:float=0.6,mu:float=0.9) -> Tuple[LayerPredicate,Stats]:
+                lpred:LayerPredicate,epsilon:float=0.05,gamma:float=0.6,
+                mu:float=0.9,alpha:Optional[float]=None) -> Tuple[LayerPredicate,Stats]:
 
     global ttime
+    if alpha is not None:
+        epsilon = 1.0 - alpha
+    print ('epsilon,gamma,mu = {},{},{}'.format(epsilon,gamma,mu))
     ttime = 0.0
     l2,pred = lpred.layer,lpred.pred
     x = train_eval.eval_one(l1,inp)
@@ -303,63 +308,17 @@ def describe_error(s,error):
     print ("on {} set: F = {}, N = {}, P = {}, precision={}, recall={}"
            .format(s,F,N,P,1.0 - float(F)/(N+1),float((N+1)-F)/P))
 
-def unflatten_unit(input_shape,unit):
-    unit = unit[0] if isinstance(unit,tuple) else unit
-    res = tuple()
-    while len(input_shape) > 0:
-        input_shape,dim = input_shape[:-1],input_shape[-1]
-        res = (unit%dim,) + res
-        unit = unit//dim
-    return res
 
 # Get the slice at layer `n` (-1 for input) that is relevant to a
-# slice `slc` at layer `n1`. TODO: doesn't really belong here since it
-# is toolkit-dependent. TODO: Not sure if this gives correct result
-# for even convolutional kernel sizes in case of padding == 'same', as
-# Keras docs don't say how padding is done in this case (i.e., whether
-# larger padding is used on left/bottom or right/top).
+# slice `slc` at layer `n1`.
 
 def get_cone(model,n,n1,slc) -> Tuple:
-    while n1 > n:
-        layer = model.layers[n1]
-        if isinstance(layer,Conv2D):
-            weights = layer.get_weights()[0]
-            row_size,col_size,planes,units = weights.shape
-            print ('layer = {}, row_size = {}, col_size = {}'.format(n1,row_size,col_size))
-            shp = layer.input_shape
-            if layer.padding == 'same':
-                rp = -(row_size // 2)
-                cp = -(col_size // 2)
-                slc = ((max(0,slc[0][0]+rp),max(0,slc[0][1]+cp),0),
-                       (min(shp[1]-1,slc[1][0]+row_size-1+cp),
-                        min(shp[2]-1,slc[1][1]+col_size-1+cp),planes-1))
-                print ("conv slice = {}".format(slc))
-            else:
-                slc = ((slc[0][0],slc[0][1],0),
-                       (slc[1][0]+row_size-1,slc[1][1]+col_size-1,planes-1))
-        elif isinstance(layer,MaxPooling2D):
-            wrows,wcols = layer.pool_size
-            def foo(i):
-                return (slc[i][0] * wrows,slc[i][1] * wcols,slc[i][2])
-            slc = ((slc[0][0] * wrows,slc[0][1] * wcols,slc[0][2]),
-                   ((slc[1][0]+1)*wrows-1,(slc[1][1]+1)*wcols-1,slc[1][2]))
-        elif isinstance(layer,Flatten):
-            shape = layer.input_shape[1:]
-            slc = (unflatten_unit(shape,slc[0]),unflatten_unit(shape,slc[1]))
-        elif isinstance(layer,Dense):
-            shape = layer.input_shape[1:]
-            slc = (tuple(0 for x in shape),tuple(x-1 for x in shape))
-            print ('Dense slc = {}'.format(slc))
-        elif layer.input_shape == layer.output_shape:
-            pass
-        else:
-            print ("Cannot compute kernel image for layer of type {}.".format(type(layer)))
-            exit(1)
-        n1 -= 1    
-    return tuple(slice(x,y+1) for x,y in zip(slc[0],slc[1]))
+    return model.get_cone(n,n1,slc) # type: ignore
     
+# Get the slice of layer `layer` that is relevant to LayerPredicate `lpred`.
+
 def get_pred_cone(model,lpred,layer = -1) -> Tuple:
-    shape = model.input_shape if lpred.layer == -1 else model.layers[lpred.layer].output_shape
+    shape = model.layer_shape(lpred.layer)
     cone = lpred.pred.cone(shape[1:])
     print ('cone= {}'.format(cone))
     slc = (tuple(x.start for x in cone),tuple(x.stop-1 for x in cone))
@@ -374,13 +333,6 @@ def unslice_itp(slc,pred):
 
 def unslice_coord(slc,coord):
     return tuple(x.start+y for x,y in zip(slc,coord))
-
-# Predicate saying output o1 is greater than output o2. Note, o1 and
-# o2 may be tuples, refering to elements of tenors of dimension greater
-# than 1.
-
-def prefer_output(o1,o2):
-    return lambda x: x[o1] >= x[o2]
 
     
 # Computes the error for a predication over a data set. The error is

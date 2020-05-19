@@ -2,7 +2,6 @@
 # Copyright (c) Microsoft Corporation.
 #
 
-from keras import backend as K
 import os
     
 # Code for fetching models and datasets.
@@ -19,6 +18,17 @@ import os
 #
 # These functions are executed with `models` as working directory.
 #
+
+# TODO: maybe this belongs in a 'utilities' file.
+
+def unflatten_unit(input_shape,unit):
+    unit = unit[0] if isinstance(unit,tuple) else unit
+    res = tuple()
+    while len(input_shape) > 0:
+        input_shape,dim = input_shape[:-1],input_shape[-1]
+        res = (unit%dim,) + res
+        unit = unit//dim
+    return res
 
 # This code scans the `models` directory and reads all of the modules
 # into a dictionary `datasets`.
@@ -55,27 +65,28 @@ class DataModel(object):
             print (module.__dict__)
             self.model = module.get_model()
             (self.x_train, self.y_train), (self.x_test, self.y_test) = module.get_data()
+            self.params = module.params if hasattr(module,'params') else {}
             os.chdir(cwd)
-            self._backend_session = K.get_session()
             self.loaded = True
 
-    # TRICKY: to use tensorflow on a given model in a thread, we have
-    # to set it up as the default session and also set up the tensorflow
-    # default graph. This method returns a context object suitable for this purpose.
-    # If you want to run inference using a DataModel `foo`, you have to
-    # use `with foo.session(): ...`.  
+    # TRICKY: to use the model in a thread other than the one in which
+    # it was created, we have to set it up as the default
+    # session. This method returns a context object suitable for this
+    # purpose.  If you want to run inference using a DataModel `foo`,
+    # you have to use `with foo.session(): ...`.
 
     def session(self):
-        K.set_session(self._backend_session)
-        return self._backend_session.graph.as_default()
+        return self.model.session()
+    
     
 # Computes the activation of layer `lidx` in model `model` over input
 # data `test`. Layer index `-1` stands for the input data.
 #
 
 def compute_activation(model,lidx,test):
-    if lidx < 0:
-        return test
-    inp = model.input
-    functor = K.function([inp, K.learning_phase()], [model.layers[lidx].output] )
-    return functor([test])[0]
+    return model.compute_activation(lidx,test)
+
+# Given a 'flat' index into a tensor, return the element index.
+# Here, `input_shape` is the shape of the tensor, and `unit` is the
+# index to an element of the tensor flattened into a vector.
+

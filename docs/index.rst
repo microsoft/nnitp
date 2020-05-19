@@ -4,7 +4,7 @@
    contain the root `toctree` directive.
 
 nnitp: Neural net interpretability with Bayesian interpolants
-============================================================
+=============================================================
 
 Nnitp is a tool for interpretability of neural network inferences
 using Bayesian interpolants. The basic technique is described in
@@ -18,6 +18,8 @@ convolutional neural networks for image classification, using the
    :maxdepth: 2
    :caption: Contents:
 
+   using_nnitp
+   preparing_models
 
 
 Indices and tables

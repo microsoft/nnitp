@@ -4,13 +4,13 @@
 
 import numpy as np
 from threading import Thread
-from traits.api import HasTraits,String,Enum,Instance,Int,Button
+from traits.api import HasTraits,String,Enum,Instance,Int,Button,Float,Bool
 import traits.api as t
 from traitsui.api import View, Item, SetEditor, Group, Tabbed, Handler
 import model_mgr
 from matplotlib.figure import Figure
 from mpl_editor import MPLFigureEditor
-from itp import LayerPredicate, is_max, Not
+from itp import LayerPredicate, is_max, Not, And, AndLayerPredicate
 from typing import List,Optional,Tuple
 from img import prepare_images
 import bayesitp
@@ -106,20 +106,38 @@ class TextDisplay(HasTraits):
 # 'none`.
 
 class Model(HasTraits):
+
+    top : 'MainWindow'  # reference to the main window
+
+    # Combo box for model name
+
     name = Enum('none',*list(model_mgr.datasets),desc='Available models and datasets')
-    top : 'MainWindow'
+
+    # Choice of dataset to view
+
+    use_set = Enum('training','test',desc='Dataset to view')
+    
+    # Interpolation parameters
+    
+    alpha = Float(0.98)  # precision parameter
+    gamma = Float(0.6)   # recall parameter
+    mu = Float(0.9)      # recall shrink parameter
+    size = Int(100)      # max training sample size
+
+    # Internal state
+
     data_model = Instance(model_mgr.DataModel)
     worker_thread = Instance(Thread)
-    use_set = Enum('training','test',desc='Dataset to view')
-    size = Int(100)
     _tf_session = None
     _train_eval : bayesitp.ModelEval
     _test_eval : bayesitp.ModelEval
+    _param_names : List[str] = ['alpha','gamma','mu','size']
+
     
     def _data_model_default(self):
         return model_mgr.DataModel()
 
-    view = View(Item('name',style='simple'),Item('use_set',style='simple'),'size')
+    view = View(Item('name',style='simple'),Item('use_set',style='simple'),'alpha','gamma','mu','size')
 
     def check_busy(self) -> bool:
         if self.worker_thread and self.worker_thread.isAlive():
@@ -133,11 +151,16 @@ class Model(HasTraits):
             self.worker_thread.start()
 
     def _size_changed(self):
+        print ('_size_changed')
         if self.data_model.loaded:
             self._train_eval = bayesitp.ModelEval(self.data_model.model,
                                                   self.data_model.x_train[:self.size])
             self._test_eval = bayesitp.ModelEval(self.data_model.model,
                                                  self.data_model.x_test[:self.size])
+
+    def _data_model_changed(self):
+        print ('_data_model_changed')
+        self.set_kwargs(self.data_model.params)
 
     def _use_set_changed(self):
         self.top.update()
@@ -152,15 +175,16 @@ class Model(HasTraits):
     def layers(self):
         if not self.data_model.loaded:
             return []
-        return ['-1:input'] + [str(i)+':'+str(type(l))
+        return ['-1:input'] + [str(i)+':'+ l
                                for i,l in enumerate(self.data_model.model.layers)]
 
     def output_layer(self) -> int:
         return len(self.data_model.model.layers) - 1
         
-    def get_inputs_pred(self,pred:LayerPredicate,N=9):
+    def get_inputs_pred(self,lpred:LayerPredicate,N=9):
         eval = self.model_eval()
-        eval.set_pred(pred.layer,pred.pred)
+        eval.set_layer_pred(lpred)
+        print ('shape = {}'.format(eval.cond.shape))
         return list(eval.indices()[:N]),list(eval.split(-1)[0][:N])
 
     # Get the index of the previous layer in the layers list. If no
@@ -182,9 +206,26 @@ class Model(HasTraits):
             spec.layer =  self.previous_layer(state.conc.layer)
             spec.train_eval = self._train_eval
             spec.test_eval = self._test_eval
-            spec.kwargs = dict()
+            kwargs = self.get_kwargs()
+            spec.kwargs = dict((k,kwargs[k]) for k in ['alpha','gamma','mu'])
             self.worker_thread = InterpolantThread(self.top,spec,self.data_model)
             self.worker_thread.start()
+
+    # Set traits from the interpolation keyword args
+
+    def set_kwargs(self,kwargs):
+        print ('self.__dict__ = {}'.format(self.__dict__))
+        for key,val in kwargs.items():
+            if key in self._param_names:
+                print ('setting kwarg {} = {}'.format(key,val))
+                self.__setattr__(key,val)
+        print ('self.__dict__ = {}'.format(self.__dict__))
+                
+
+    # Get the interpolant keyword args from object traits
+
+    def get_kwargs(self):
+        return dict((key,self.__dict__[key]) for key in self._param_names)
 
     def pred_cone(self,lp:LayerPredicate) -> Tuple:
         return bayesitp.get_pred_cone(self.data_model.model,lp)
@@ -250,6 +291,7 @@ class InitState(State):
                 new_state.input_idx = id
                 new_state.input = self.compset[id]
                 new_state.conc = self.conc
+                new_state.category_pred = self.conc
                 self.top.push_state(new_state)
                 
     def on_axes_enter(self,event):
@@ -270,12 +312,14 @@ class InitState(State):
 class NormalState(State):
     input_idx : int = 0  # index of input in dataset
     input : np.ndarray = None
-    conc : Optional[LayerPredicate] = None
+    conc : LayerPredicate
+    category_pred : LayerPredicate
     itp : Optional[LayerPredicate] = None
     comp : Optional[LayerPredicate] = None
     compset : List[int] = []
     compimgs : List[np.ndarray] = []
     stats : bayesitp.Stats
+    _restrict : bool = False
     
     # Draw the matplotlib figure corresponding to this state.  In the
     # normal case, we display the input image along with the
@@ -288,6 +332,8 @@ class NormalState(State):
 
         if self.comp is None:
             self.set_comparison(self.itp)
+        elif self.restrict != self.top.restrict:
+            self.refresh_comparison()
         cols = 1 + len(self.compset)
         top_row = [self.input] + self.compimgs
         top_idxs = [self.input_idx] + self.compset
@@ -368,11 +414,17 @@ class NormalState(State):
     def set_comparison(self,comp:Optional[LayerPredicate]):
         self.comp = comp
         if comp is not None:
-            self.compset, self.compimgs = self.top.model.get_inputs_pred(comp)
+            self.refresh_comparison()
         else:
             self.compset, self.compimgs = [],[]
             
-        
+    def refresh_comparison(self):
+        if self.comp is not None:
+            comp = self.comp
+            if self.top.restrict:
+                comp = AndLayerPredicate(comp,self.category_pred)
+            self.compset, self.compimgs = self.top.model.get_inputs_pred(comp)
+            self.restrict = self.top.restrict
 
 # The main window. The view consists of the following elements:
 #
@@ -393,13 +445,16 @@ class MainWindow(HasTraits):
     figure = Instance(Figure,())
     layers = t.List(editor=SetEditor(name='avail'))
     category = Int(0)
+    restrict = Bool()
     predicate = String()
     back = Button()
 
     view = View(
         Item('display',show_label=False, style='custom'),Tabbed(
             Group('model', 'layers', label = 'Model'),
-            Group('back', Item('predicate',style='readonly'),
+            Group(Group('category','restrict',Item('back',show_label=False),
+                        orientation='horizontal',style='simple'),
+                  Item('predicate',style='readonly'),
                   Item('figure', editor=MPLFigureEditor(),
                        show_label=False, springy=True), label='Images'),
             style='custom'), resizable=True)
@@ -425,7 +480,8 @@ class MainWindow(HasTraits):
                 
     def model_loaded(self):
         state = InitState()
-        self.model._size_changed()   # update model evaluators
+        self.model._data_model_changed()  # update the interpolation parameters
+        self.model._size_changed()        # update model evaluators
         state.conc = LayerPredicate(self.model.output_layer(),is_max(self.category))
 
         # Get the inputs of selected category according to the model.
@@ -461,6 +517,9 @@ class MainWindow(HasTraits):
             self._states.pop()
             self.update()
             
+    def _restrict_changed(self):
+        self.update()
+        
 # Display the main window
         
 if __name__ == '__main__':

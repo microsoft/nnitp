@@ -79,10 +79,11 @@ class BoundPredicate(Predicate):
     val : float
     pos : bool
     def __call__(self,data:np.ndarray):
-        return data[self.var] >= self.val if self.pos else data[self.var] < self.val
+        return data[self.var] >= self.val if self.pos else data[self.var] <= self.val
     def map(self,data):
-        vals = data[:,self.var]
-        return vals >= self.val if self.pos else data[self.var] < self.val
+        vals = data[(slice(None),)+self.var]
+        print ('vals.shape = {}'.format(vals.shape))
+        return vals >= self.val if self.pos else vals <= self.val
     def __init__(self,var:Tuple[int,...],val:float,pos:bool):
         self.var,self.val,self.pos = var,val,pos
     def __str__(self):
@@ -112,7 +113,7 @@ class And(Predicate):
     def map(self,data):
         res = np.ones(len(data), dtype=bool)
         for pred in self.args:
-            res = res.logical_and(res,pred.map(data))
+            res = np.logical_and(res,pred.map(data))
         return res
     def __init__(self,*args : Predicate):
         self.args = list(args)
@@ -143,7 +144,7 @@ class Not(Predicate):
 # Predicate stating that variable `var` is over all variables. Here,
 # `var` is an index into a tensor of variables.
 
-class is_max(object):
+class is_max(Predicate):
     def __init__(self,unit):
         self.unit = unit
     def __call__(self,x):
@@ -170,6 +171,20 @@ class LayerPredicate(object):
         return self.pred.cone(shape)
     def negate(self):
         return LayerPredicate(self.layer,Not(self.pred))
+    def eval(self,model):
+        return self.pred.map(model.eval(self.layer))
+
+class AndLayerPredicate(object):
+    args : Tuple[LayerPredicate,...]
+    def __init__(self,*args: LayerPredicate):
+        self.args = args
+    def eval(self,model):
+        res = np.ones(len(model.data), dtype=bool)
+        for lpred in self.args:
+            res = np.logical_and(res,lpred.eval(model))
+        return res
+    
+    
 
 # Interpolation log files
 #
