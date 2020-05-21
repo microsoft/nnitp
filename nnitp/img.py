@@ -9,6 +9,8 @@ import numpy as np
 # to gray-scale images.
 
 def prepare_images(imgs):
+    if len(imgs) == 0:
+        return imgs
     imin,imax = min(map(np.min,imgs)),max(map(np.max,imgs))
     iptp = imax - imin
     def to_gray(img):

@@ -39,9 +39,10 @@ model_dir = os.path.join(os.path.dirname(__file__),'models')
 for fname in os.listdir(model_dir):
     if fname.endswith(suffix):
         modname = fname[0:-3]
-        module = __import__('models.'+modname)
+        module = __import__('nnitp.models.'+modname)
+        print (module.__dict__)
         name = fname[0:-len(suffix)]
-        datasets[name] = module.__dict__[modname]
+        datasets[name] = module.models.__dict__[modname]
         
 # Class `DataModel` is a combination of a dataset (training and test)
 # and a trained model. 

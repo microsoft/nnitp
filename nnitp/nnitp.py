@@ -2,20 +2,23 @@
 # Copyright (c) Microsoft Corporation.
 #
 
+print (__name__)
+
 import numpy as np
 from threading import Thread
 from traits.api import HasTraits,String,Enum,Instance,Int,Button,Float,Bool
 import traits.api as t
 from traitsui.api import View, Item, SetEditor, Group, Tabbed, Handler
-import model_mgr
+from .model_mgr import DataModel,datasets
 from matplotlib.figure import Figure
-from mpl_editor import MPLFigureEditor
-from itp import LayerPredicate, is_max, Not, And, AndLayerPredicate
+from .mpl_editor import MPLFigureEditor
+from .itp import LayerPredicate, is_max, AndLayerPredicate, BoundPredicate
 from typing import List,Optional,Tuple
-from img import prepare_images
-import bayesitp
+from .img import prepare_images
+from .bayesitp import ModelEval, Stats, interpolant, get_pred_cone, fraction, fractile
 from copy import copy
-from PyQt5.QtWidgets import QMenu
+from PyQt5.QtCore import Qt
+from PyQt5.QtWidgets import QMenu,QApplication
 from PyQt5.QtGui import QTextCursor
 #
 # Computation threads. We do computations in threads to avoid freezing
@@ -27,7 +30,7 @@ from PyQt5.QtGui import QTextCursor
 class LoadThread(Thread):
     top : 'MainWindow'
     name : str
-    data_model : model_mgr.DataModel
+    data_model : DataModel
     
     def run(self):
         self.top.message('Loading model "{}"...\n'.format(self.name))
@@ -35,7 +38,7 @@ class LoadThread(Thread):
         self.top.message('Done loading model.\n')
         self.top.model_loaded()
 
-    def __init__(self,top:'MainWindow',name:str,data_model:model_mgr.DataModel):
+    def __init__(self,top:'MainWindow',name:str,data_model:DataModel):
         super(LoadThread, self).__init__()
         self.top,self.name,self.data_model = top,name,data_model
 
@@ -44,8 +47,8 @@ class LoadThread(Thread):
 class InterpolantSpec(object):
     state : 'NormalState'  # new state after interpolant computed
     layer : int
-    train_eval : bayesitp.ModelEval
-    test_eval : bayesitp.ModelEval
+    train_eval : ModelEval
+    test_eval : ModelEval
     kwargs : dict
 
 # This thread is for computing an interpolant. 
@@ -53,13 +56,13 @@ class InterpolantSpec(object):
 class InterpolantThread(Thread):
     top : 'MainWindow'
     spec : InterpolantSpec
-    data_model : model_mgr.DataModel
+    data_model : DataModel
     
     def run(self):
         self.top.message('Computing interpolant"{}"...\n'.format(self.name))
         with self.data_model.session():
             spec = self.spec
-            itp,stats = bayesitp.interpolant(spec.train_eval,spec.test_eval,spec.layer,
+            itp,stats = interpolant(spec.train_eval,spec.test_eval,spec.layer,
                                              spec.state.input,spec.state.conc,**spec.kwargs)
             self.top.message('Interpolant: {}\n'.format(itp))
             self.top.message(str(stats))
@@ -67,7 +70,7 @@ class InterpolantThread(Thread):
             self.spec.state.stats = stats
             self.top.push_state(self.spec.state)
 
-    def __init__(self,top:'MainWindow',spec:InterpolantSpec,data_model:model_mgr.DataModel):
+    def __init__(self,top:'MainWindow',spec:InterpolantSpec,data_model:DataModel):
         super(InterpolantThread, self).__init__()
         self.top,self.spec,self.data_model = top,spec,data_model
 
@@ -111,7 +114,7 @@ class Model(HasTraits):
 
     # Combo box for model name
 
-    name = Enum('none',*list(model_mgr.datasets),desc='Available models and datasets')
+    name = Enum('none',*list(datasets),desc='Available models and datasets')
 
     # Choice of dataset to view
 
@@ -123,21 +126,22 @@ class Model(HasTraits):
     gamma = Float(0.6)   # recall parameter
     mu = Float(0.9)      # recall shrink parameter
     size = Int(100)      # max training sample size
+    ensemble_size = Int(1) # size of interpolant ensemble
 
     # Internal state
 
-    data_model = Instance(model_mgr.DataModel)
+    data_model = Instance(DataModel)
     worker_thread = Instance(Thread)
     _tf_session = None
-    _train_eval : bayesitp.ModelEval
-    _test_eval : bayesitp.ModelEval
-    _param_names : List[str] = ['alpha','gamma','mu','size']
+    _train_eval : ModelEval
+    _test_eval : ModelEval
+    _param_names : List[str] = ['alpha','gamma','mu','size','ensemble_size']
 
     
     def _data_model_default(self):
-        return model_mgr.DataModel()
+        return DataModel()
 
-    view = View(Item('name',style='simple'),Item('use_set',style='simple'),'alpha','gamma','mu','size')
+    view = View(Item('name',style='simple'),Item('use_set',style='simple'),'alpha','gamma','mu','size','ensemble_size')
 
     def check_busy(self) -> bool:
         if self.worker_thread and self.worker_thread.isAlive():
@@ -148,14 +152,15 @@ class Model(HasTraits):
     def _name_changed(self):
         if self.check_busy():
             self.worker_thread = LoadThread(self.top,self.name,self.data_model)
+            QApplication.setOverrideCursor(Qt.BusyCursor)
             self.worker_thread.start()
 
     def _size_changed(self):
         print ('_size_changed')
         if self.data_model.loaded:
-            self._train_eval = bayesitp.ModelEval(self.data_model.model,
+            self._train_eval = ModelEval(self.data_model.model,
                                                   self.data_model.x_train[:self.size])
-            self._test_eval = bayesitp.ModelEval(self.data_model.model,
+            self._test_eval = ModelEval(self.data_model.model,
                                                  self.data_model.x_test[:self.size])
 
     def _data_model_changed(self):
@@ -192,7 +197,9 @@ class Model(HasTraits):
 
     def previous_layer(self,layer:int) -> int:
         layers = [int(x.split(':')[0]) for x in self.top.layers]
-        layers = [x for x in layers if x < layer]
+        print ('layers: {}'.format(layers))
+        layers = [x for x in sorted(layers) if x < layer]
+        print ('layers: {}'.format(layers))
         return layers[-1] if layers else -1
 
     # Compute an interpolant for a given input and conclusion in a
@@ -207,8 +214,9 @@ class Model(HasTraits):
             spec.train_eval = self._train_eval
             spec.test_eval = self._test_eval
             kwargs = self.get_kwargs()
-            spec.kwargs = dict((k,kwargs[k]) for k in ['alpha','gamma','mu'])
+            spec.kwargs = dict((k,kwargs[k]) for k in ['alpha','gamma','mu','ensemble_size'])
             self.worker_thread = InterpolantThread(self.top,spec,self.data_model)
+            QApplication.setOverrideCursor(Qt.WaitCursor)
             self.worker_thread.start()
 
     # Set traits from the interpolation keyword args
@@ -228,7 +236,7 @@ class Model(HasTraits):
         return dict((key,self.__dict__[key]) for key in self._param_names)
 
     def pred_cone(self,lp:LayerPredicate) -> Tuple:
-        return bayesitp.get_pred_cone(self.data_model.model,lp)
+        return get_pred_cone(self.data_model.model,lp)
 
             
 # Metadata for images displayed in the figure.
@@ -259,13 +267,23 @@ class State(object):
 class InitState(State):
     conc : Optional[LayerPredicate] = None
     compset : List[int] = []
-    
+
+    _displayed_category : Optional[int] = None
+
     # Draw the matplotlib figure corresponding to this state
 
     def render(self,figure:Figure):
 
         # In the initial state, we display a choice of input images
-        # satisfying the conclusion and allow the user to select one.
+        # satisfying in the chosen category and allow the user to select one.
+
+        # Get the inputs of selected category according to the model.
+        category = self.top.category
+        if self._displayed_category != category:
+            self.conc = LayerPredicate(self.top.model.output_layer(),is_max(category))
+            self.top.model.model_eval().set_pred(self.conc.layer,self.conc.pred)
+            self.compset,_ = self.top.model.model_eval().split(-1)
+            self._displayed_category = category
 
         rows,cols = 5,10
         imgs = prepare_images(self.compset[:(rows*cols)])
@@ -318,7 +336,7 @@ class NormalState(State):
     comp : Optional[LayerPredicate] = None
     compset : List[int] = []
     compimgs : List[np.ndarray] = []
-    stats : bayesitp.Stats
+    stats : Stats
     _restrict : bool = False
     
     # Draw the matplotlib figure corresponding to this state.  In the
@@ -394,7 +412,6 @@ class NormalState(State):
                     new_state.set_comparison(id.pred.negate())
                 else:
                     return
-                self.top.message('Comparison predicate: {}\n'.format(id.pred))
                 self.top.push_state(new_state)
                 return
             new_state.input_idx = id.input_idx
@@ -406,6 +423,7 @@ class NormalState(State):
         if event.inaxes is not None:
             id = event.inaxes.identifier
             self.top.predicate = str(id.pred)
+            self.top.fraction = fraction(self.top.model.model_eval(),id.pred)
 
     # Set the comparison predicate and update the comparison list
     # accordingly. This displays the first 9 images satisfying the
@@ -421,8 +439,15 @@ class NormalState(State):
     def refresh_comparison(self):
         if self.comp is not None:
             comp = self.comp
+            if isinstance(comp.pred,BoundPredicate):
+                percentile = self.top.percentile
+                if percentile > 0.0 and percentile <= 100.0:
+                    comp = fractile(self.top.model.model_eval(),
+                                             comp.layer,comp.pred.var,comp.pred.pos,
+                                             percentile/100.0)
             if self.top.restrict:
                 comp = AndLayerPredicate(comp,self.category_pred)
+            self.top.message('Comparison predicate: {}\n'.format(comp))
             self.compset, self.compimgs = self.top.model.get_inputs_pred(comp)
             self.restrict = self.top.restrict
 
@@ -447,6 +472,8 @@ class MainWindow(HasTraits):
     category = Int(0)
     restrict = Bool()
     predicate = String()
+    fraction = Float()
+    percentile = Float(0.0)
     back = Button()
 
     view = View(
@@ -454,7 +481,9 @@ class MainWindow(HasTraits):
             Group('model', 'layers', label = 'Model'),
             Group(Group('category','restrict',Item('back',show_label=False),
                         orientation='horizontal',style='simple'),
-                  Item('predicate',style='readonly'),
+                  Group(Item('predicate',style='readonly'),
+                        Item('fraction',style='readonly'),
+                        Item('percentile',style='simple'),orientation='horizontal'),
                   Item('figure', editor=MPLFigureEditor(),
                        show_label=False, springy=True), label='Images'),
             style='custom'), resizable=True)
@@ -472,7 +501,9 @@ class MainWindow(HasTraits):
         super(MainWindow, self).__init__()
         
     def update(self):
+        print ('clearing figure...')
         self.figure.clear()
+        print ('done')
         if len(self._states):
             self._states[-1].render(self.figure)
             self.figure.canvas.mpl_connect('button_press_event', self.onclick)
@@ -482,20 +513,15 @@ class MainWindow(HasTraits):
         state = InitState()
         self.model._data_model_changed()  # update the interpolation parameters
         self.model._size_changed()        # update model evaluators
-        state.conc = LayerPredicate(self.model.output_layer(),is_max(self.category))
-
-        # Get the inputs of selected category according to the model.
-        self.model.model_eval().set_pred(state.conc.layer,state.conc.pred)
-        state.compset,_ = self.model.model_eval().split(-1)
-
         state.top = self
         self.avail = self.model.layers()
         self.message('Select layers for explanations, then choose an input image in the images tab.\n')
         self.push_state(state)
-
+        
     def push_state(self,state:State):
         self._states.append(state)
         self.update()
+        QApplication.restoreOverrideCursor()
 
     def message(self,msg:str):
         self.display.string = self.display.string + msg
@@ -515,12 +541,21 @@ class MainWindow(HasTraits):
     def _back_fired(self):
         if len(self._states) > 1:
             self._states.pop()
+            QApplication.setOverrideCursor(Qt.WaitCursor)
             self.update()
+            QApplication.restoreOverrideCursor()
             
     def _restrict_changed(self):
         self.update()
         
+    def _category_changed(self):
+        print ('category changed tp {} '.format(self.category))
+        self.update()
+
+def main():
+    MainWindow().configure_traits()
+        
 # Display the main window
         
 if __name__ == '__main__':
-    MainWindow().configure_traits()
+    main()

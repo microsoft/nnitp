@@ -1,6 +1,6 @@
 import tensorflow as tf
 from keras.models import load_model
-from nnitp_keras import KerasModel
+from nnitp.nnitp_keras import KerasModel
 
 # Fetch the MNIST dataset, normalize to range [0.0,1.0)
 
@@ -19,5 +19,5 @@ def get_data():
 def get_model():
     return KerasModel(load_model('mnist_model.h5'))
 
-params = {'size':20000,'alpha':0.98,'gamma':0.6,'mu':0.9}
+params = {'size':100,'alpha':0.98,'gamma':0.6,'mu':0.9}
     

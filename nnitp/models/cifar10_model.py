@@ -1,6 +1,6 @@
 import numpy
 from keras.models import load_model
-from nnitp_keras import KerasModel
+from nnitp.nnitp_keras import KerasModel
 
 # Fetch the CIFAR10 dataset, normalized with mean=0, std = 1
 

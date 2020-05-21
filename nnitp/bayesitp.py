@@ -2,14 +2,14 @@
 # Copyright (c) Microsoft Corporation.
 #
 
-from model_mgr import unflatten_unit, compute_activation
+from .model_mgr import unflatten_unit, compute_activation
 import numpy as np
 import math
-from itp import itp_pred, bound, LayerPredicate
-from itp import BoundPredicate, And
+from .itp import itp_pred, bound, LayerPredicate
+from .itp import BoundPredicate, And
 import time
 import random
-from typing import Tuple, List, Optional
+from typing import Tuple, List, Optional, Callable
 
 #
 # Code for computing Bayesian interpolants.
@@ -57,7 +57,9 @@ class ModelEval(object):
         if idx in self.eval_cache:
             return self.eval_cache[idx]
         print("evaluating layer {}".format(idx))
-        res = compute_activation(self.model,idx,self.data)
+        # Evaluate in batches of 10000 to avoid memout
+        res = np.concatenate([compute_activation(self.model,idx,self.data[base:base+10000])
+                              for base in range(0,len(self.data),10000)])
         print("done")
         self.eval_cache[idx] = res
         print (res.shape)
@@ -187,12 +189,13 @@ def separator(x,onset,offset,epsilon,gamma,mu):
 # Same as the above, but computes the result over a random subset of
 # the features of size `samp_size`. Default sample size is `sqrt(len(x))`.
 
-use_random_subspace = False
-random_subspace_size = None
+_use_random_subspace = False
+_random_subspace_size = None
 
 def randseparator(x,onset,offset,epsilon,gamma,mu):
-    if use_random_subspace:
-        samp_size = random_subspace_size if random_subspace_size is not None else int(math.sqrt(len(x)))
+    if _use_random_subspace:
+        samp_size = (_random_subspace_size(len(x)) if _random_subspace_size is not None
+                     else int(math.sqrt(len(x))))
         subset = np.array(random.sample(list(range(len(x))),samp_size))
         sx = x[subset]
         sonset = onset[:,subset]
@@ -204,13 +207,13 @@ def randseparator(x,onset,offset,epsilon,gamma,mu):
     return res
 
 
-# Same as above, but creates an ensemble of predictors of size `ensemble_size`
+# Same as above, but creates an ensemble of predictors of size `_ensemble_size`
 
-ensemble_size = 1
+_ensemble_size = 1
 
 def ensembleseparator(x,onset,offset,epsilon,gamma,mu):
     res = []
-    for idx in range(ensemble_size):
+    for idx in range(_ensemble_size):
         res.extend(randseparator(x,onset,offset,epsilon,gamma,mu))
     return res
 
@@ -249,27 +252,17 @@ def slice_ndseparator(ndx,ndonset,ndoffset,epsilon,gamma,mu,cone=None):
         res = unslice_itp(cone,res)
     return res
 
-# Given model evaluators for the training and test sets, compute an
-# interpolant at layer `l1` for a predicate at layer `l2` with
-# precision `1-epsilon`, recall `gamma`. The interpolant must be
-# expressed over slice `cone` of layer `l1`, if `cone` is not None.
-# If `samps` is not None, it is take as the training sample split,
-# i.e., the pair `(pos,neg)` where `pos` is the set of positve
-# training samples at layer `l1`, and `neg` is the set of negative
-# training samples. Otherwise the training split is computed.  Returns
-# the interpolant, the training error and the test error.
-
-show_predictions = False
+# Internal implementation of `interpolant()`, see below.
 
 def interpolant_int(train_eval,test_eval,l1,x,l2,pred,
                     epsilon,gamma,mu,cone=None,samps=None):
-    global ttime
+    global _ttime
     print ('l2 = {}'.format(l2))
     train_eval.set_pred(l2,pred)
     before = time.time()
     psamps2,nsamps2 = train_eval.split(l1) if samps is None else samps
     res = slice_ndseparator(x,nsamps2,psamps2,epsilon,gamma,mu,cone)
-    ttime += (time.time()-before)
+    _ttime += (time.time()-before)
     print ("interpolant: {}".format(res))
 #    check_itp_pred(res,x)
     train_error = check_itp(train_eval,l1,itp_pred(res),l2,pred)
@@ -280,17 +273,55 @@ def interpolant_int(train_eval,test_eval,l1,x,l2,pred,
 #        show_positives(train_eval,l1,itp_pred(res),l2,pred,10,res)
     return res,train_error,test_error
 
-ttime = 0.0
+_ttime = 0.0
+
+# Compute a Bayesian interpolant.
+#
+# Required parameters:
+#
+# - `train_eval`: model evaluator over the training set
+# - `test_eval`: model evaluator over the test set
+# - `l1`: index of layer at which interpolant should be computed
+# - `inp`: input valuation (i.e., `A` is the predicate `model input = inp`)
+# - `lpred` : LayerPredicate representing the conclusion `B`
+#
+# Options:
+#
+# - `alpha`: precision parameter (default: 0.98)
+# - `gamma`: recall parameter (default: 0.6)
+# - `mu`: recall reduction parameter (default: 0.9)
+# - `ensemble size`: size of ensemble (default: 1)
+# - `random_subspace_size`: function from feature space size to random subspace size
+#
+# Return value: (itp,stats), where
+#
+# - `itp` is a LayerPredicate representing the interpolant
+# - `stats` is a Stats object giving interpolation statistics
+#
+# Notes:
+#
+# - If `ensemble_size > 1`, the interpolant is computed as an ensemble
+#   (a conjunction) of independent interpolants. 
+# - If `random_subspace_size` is not `None`, then each interpolant
+#   in the ensemble is computed using a random sample without
+#   replacement of the features of size `random_subspace_size(N)`
+#   where `N` is the number of units in the interpolant layer `l1`.
+#   The default function is `N/ensemble_size`.
+#   
 
 def interpolant(train_eval:ModelEval,test_eval:ModelEval,l1:int,inp:np.ndarray,
-                lpred:LayerPredicate,epsilon:float=0.05,gamma:float=0.6,
-                mu:float=0.9,alpha:Optional[float]=None) -> Tuple[LayerPredicate,Stats]:
+                lpred:LayerPredicate,alpha:float=0.98,gamma:float=0.6,
+                mu:float=0.9,ensemble_size:int=1,
+                random_subspace_size:Optional[Callable[[int],int]]=None,
+                ) -> Tuple[LayerPredicate,Stats]:
 
-    global ttime
-    if alpha is not None:
-        epsilon = 1.0 - alpha
-    print ('epsilon,gamma,mu = {},{},{}'.format(epsilon,gamma,mu))
-    ttime = 0.0
+    global _ttime,_ensemble_size,_use_random_subspace,_random_subspace_size
+    epsilon = 1.0 - alpha
+    print ('epsilon,gamma,mu,ensemble_size = {},{},{},{}'.format(epsilon,gamma,mu,ensemble_size))
+    _ttime = 0.0
+    _ensemble_size = ensemble_size
+    _use_random_subspace = ensemble_size > 1
+    _random_subspace_size = random_subspace_size or (lambda N: N//ensemble_size)
     l2,pred = lpred.layer,lpred.pred
     x = train_eval.eval_one(l1,inp)
     cone = get_pred_cone(train_eval.model,lpred,l1)
@@ -300,7 +331,7 @@ def interpolant(train_eval:ModelEval,test_eval:ModelEval,l1:int,inp:np.ndarray,
     stats = Stats()
     stats.train_acc = train_error
     stats.test_acc = test_error
-    stats. time = ttime 
+    stats. time = _ttime 
     return LayerPredicate(l1,And(*conjs)),stats 
 
 def describe_error(s,error):
@@ -355,3 +386,34 @@ def check_itp(m,l1,p1,l2,p2):
     P = np.count_nonzero(result)
     return (F,N,P)
 
+
+# Computes the gamma-th fractile of a unit over a dataset:
+#
+# - model: The model and datatset
+# - lidx: the layer index (-1 for input)
+# - unit: the tensor index
+# - pos: true for upper fractile, false for lower
+# - gamma: the fraction
+#
+
+def fractile(model:ModelEval,lidx:int,unit:Tuple[int,...],pos:bool,gamma:float):
+    data = model.eval(lidx)
+    data = data[(slice(None),)+unit]
+    data = np.sort(data)
+    if not pos:
+        data = np.flip(data)
+    off = int(math.ceil(gamma * len(data))) - 1 if gamma > 0.0 else 0
+    return LayerPredicate(lidx,BoundPredicate(unit,data[off],pos))
+
+# Computes the fraction of samples satisfying a predicate:
+#
+# - model: The model and datatset
+# - lpred: The predicate
+#
+
+def fraction(model:ModelEval,lpred:LayerPredicate):
+    data = lpred.eval(model)
+    return np.count_nonzero(data) / len(data)
+    
+
+    

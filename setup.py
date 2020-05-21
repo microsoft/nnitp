@@ -22,7 +22,8 @@ setup(name='nnitp',
       author='nnitp team',
       author_email='nomail@example.com',
       license='MIT',
-      packages=find_packages(),
+#      packages=find_packages(),
+      packages = ['nnitp','nnitp.models'],
       package_data={'nnitp':['models/*.h5',]},
       install_requires=[
           'keras',
@@ -31,6 +32,6 @@ setup(name='nnitp',
           'matplotlib',
       ],
       entry_points = {
-        'console_scripts': ['nnitp=nnitp.nnitp:main',],
+        'console_scripts': ['nnitp=nnitp:main',],
       },
       zip_safe=False)

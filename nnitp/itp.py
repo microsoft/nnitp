@@ -148,6 +148,8 @@ class is_max(Predicate):
     def __init__(self,unit):
         self.unit = unit
     def __call__(self,x):
+        if self.unit < 0 or self.unit >= len(x):
+            return False
         return np.all(x[self.unit] >= x) 
     def map(self,data):
         return np.array([self(y) for y in data])
