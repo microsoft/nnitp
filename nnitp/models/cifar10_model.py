@@ -22,5 +22,5 @@ def get_model():
 #    model.summary()
     return KerasModel(model)
 
-params = {'size':20000,'alpha':0.95,'gamma':0.6,'mu':0.9}
+params = {'size':20000,'alpha':0.95,'gamma':0.6,'mu':0.9,'layers':[6,14]}
     

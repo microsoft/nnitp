@@ -2,20 +2,18 @@
 # Copyright (c) Microsoft Corporation.
 #
 
-print (__name__)
-
 import numpy as np
 from threading import Thread
 from traits.api import HasTraits,String,Enum,Instance,Int,Button,Float,Bool
 import traits.api as t
 from traitsui.api import View, Item, SetEditor, Group, Tabbed, Handler
-from .model_mgr import DataModel,datasets
+from .model_mgr import DataModel,datasets,ModelEval
 from matplotlib.figure import Figure
 from .mpl_editor import MPLFigureEditor
 from .itp import LayerPredicate, is_max, AndLayerPredicate, BoundPredicate
 from typing import List,Optional,Tuple
 from .img import prepare_images
-from .bayesitp import ModelEval, Stats, interpolant, get_pred_cone, fraction, fractile
+from .bayesitp import Stats, interpolant, get_pred_cone, fraction, fractile
 from copy import copy
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QMenu,QApplication
@@ -86,17 +84,8 @@ class InterpolantThread(Thread):
 class TextDisplayHandler(Handler):
 
     def object_string_changed(self,info):
-        print ('got here" {}'.format(type(info.string.control)))
         info.string.control.moveCursor(QTextCursor.End)        
 
-    # def setattr(self, info, object, name, value):
-    #     Handler.setattr(self, info, object, name, value)
-    #     print ('got here')
-    #     info.object._updated = True
-
-    # def object__updated_changed(self, info):
-    #     if info.initialized:
-    #         info.ui.title += "*"
 
 class TextDisplay(HasTraits):
     string =  String('Choose a model name.\n')
@@ -156,7 +145,6 @@ class Model(HasTraits):
             self.worker_thread.start()
 
     def _size_changed(self):
-        print ('_size_changed')
         if self.data_model.loaded:
             self._train_eval = ModelEval(self.data_model.model,
                                                   self.data_model.x_train[:self.size])
@@ -164,7 +152,6 @@ class Model(HasTraits):
                                                  self.data_model.x_test[:self.size])
 
     def _data_model_changed(self):
-        print ('_data_model_changed')
         self.set_kwargs(self.data_model.params)
 
     def _use_set_changed(self):
@@ -180,7 +167,7 @@ class Model(HasTraits):
     def layers(self):
         if not self.data_model.loaded:
             return []
-        return ['-1:input'] + [str(i)+':'+ l
+        return ['-1:input'] + ['{:0>2}'.format(i)+':'+ l
                                for i,l in enumerate(self.data_model.model.layers)]
 
     def output_layer(self) -> int:
@@ -189,7 +176,6 @@ class Model(HasTraits):
     def get_inputs_pred(self,lpred:LayerPredicate,N=9):
         eval = self.model_eval()
         eval.set_layer_pred(lpred)
-        print ('shape = {}'.format(eval.cond.shape))
         return list(eval.indices()[:N]),list(eval.split(-1)[0][:N])
 
     # Get the index of the previous layer in the layers list. If no
@@ -197,9 +183,7 @@ class Model(HasTraits):
 
     def previous_layer(self,layer:int) -> int:
         layers = [int(x.split(':')[0]) for x in self.top.layers]
-        print ('layers: {}'.format(layers))
         layers = [x for x in sorted(layers) if x < layer]
-        print ('layers: {}'.format(layers))
         return layers[-1] if layers else -1
 
     # Compute an interpolant for a given input and conclusion in a
@@ -222,12 +206,9 @@ class Model(HasTraits):
     # Set traits from the interpolation keyword args
 
     def set_kwargs(self,kwargs):
-        print ('self.__dict__ = {}'.format(self.__dict__))
         for key,val in kwargs.items():
             if key in self._param_names:
-                print ('setting kwarg {} = {}'.format(key,val))
                 self.__setattr__(key,val)
-        print ('self.__dict__ = {}'.format(self.__dict__))
                 
 
     # Get the interpolant keyword args from object traits
@@ -393,13 +374,11 @@ class NormalState(State):
     def onclick(self,event):
         if event.inaxes is not None:
             id = event.inaxes.identifier
-            print ('input_idx = {}, pred = {}'.format(id.input_idx,id.pred))
             new_state = copy(self)
             new_state.comp = None
             new_state.compset = []
             new_state.compimgs = []
             if event.button == 3:
-                print ('x = {}, y = {}'.format(event.x,event.y))
                 canvas = self.top.figure.canvas
                 menu = QMenu(canvas)
                 examplesAction = menu.addAction("Examples")
@@ -515,6 +494,8 @@ class MainWindow(HasTraits):
         self.model._size_changed()        # update model evaluators
         state.top = self
         self.avail = self.model.layers()
+        layer_idxs = self.model.data_model.params.get('layers',[])
+        self.layers = list_elems(self.avail,[i+1 for i in layer_idxs])
         self.message('Select layers for explanations, then choose an input image in the images tab.\n')
         self.push_state(state)
         
@@ -525,12 +506,8 @@ class MainWindow(HasTraits):
 
     def message(self,msg:str):
         self.display.string = self.display.string + msg
-#        print (self.trait_views())
-#        print ('dict = {}'.format(self.display.string.__dict__))
-#        self._get_editor('display').control.moveCursor(QTextCursor.End)
 
     def onclick(self,event):
-        print ('onclick: {}'.format(event.button))
         if self._states:
             self._states[-1].onclick(event)
         
@@ -549,8 +526,12 @@ class MainWindow(HasTraits):
         self.update()
         
     def _category_changed(self):
-        print ('category changed tp {} '.format(self.category))
         self.update()
+
+def list_elems(l1,l2):
+    print ('l1 = {}'.format(l1))
+    print ('l2 = {}'.format(l2))
+    return [l1[i] for i in l2 if i >= 0 and i < len(l1)]
 
 def main():
     MainWindow().configure_traits()

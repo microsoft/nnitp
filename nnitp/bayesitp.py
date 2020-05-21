@@ -2,7 +2,7 @@
 # Copyright (c) Microsoft Corporation.
 #
 
-from .model_mgr import unflatten_unit, compute_activation
+from .model_mgr import unflatten_unit, ModelEval
 import numpy as np
 import math
 from .itp import itp_pred, bound, LayerPredicate
@@ -40,50 +40,6 @@ class Stats(object):
         return (self._describe_acc('training',self.train_acc) +
                 self._describe_acc('test',self.test_acc) +
                 'Compute time: {}\n'.format(self.time))
-        
-# Object for evaluating a model on an input set and caching the
-# results. The constructor takes a model and some input data.  The
-# `eval` method returns the activation value of layer `idx`. The method
-# `set_pred` records a predicate `p` over layer `idx`. The method
-# `split` returns a pair consisting of the the activations at layer `idx`
-# when the predicate is true/false. Method `indices` returns a vector
-# of the indices satisfying `p`.
-
-class ModelEval(object):
-    def __init__(self,model,data):
-        self.model,self.data = model,data
-        self.eval_cache = dict()
-    def eval(self,idx):
-        if idx in self.eval_cache:
-            return self.eval_cache[idx]
-        print("evaluating layer {}".format(idx))
-        # Evaluate in batches of 10000 to avoid memout
-        res = np.concatenate([compute_activation(self.model,idx,self.data[base:base+10000])
-                              for base in range(0,len(self.data),10000)])
-        print("done")
-        self.eval_cache[idx] = res
-        print (res.shape)
-        return res
-    def set_pred(self,idx,p):
-        self.split_cache = dict()
-        self.cond = vect_eval(p,self.eval(idx))
-    def set_layer_pred(self,lp):
-        self.split_cache = dict()
-        self.cond = lp.eval(self)
-    def split(self,idx):
-        if idx in self.split_cache:
-            return self.split_cache[idx]
-        def select(c):
-            return np.compress(c,self.eval(idx),axis=0)
-        res = (select(self.cond),select(np.logical_not(self.cond)))
-        self.split_cache[idx] = res
-        return res
-    def indices(self):
-        return np.compress(self.cond,np.arange(len(self.cond)))
-    def eval_one(self,idx,input):
-        data = input.reshape(1,*input.shape)
-        return compute_activation(self.model,idx,data)[0]
-
         
 #
 # Evaluate a predicate on a vector. 
@@ -162,7 +118,6 @@ def remove(e,pred):
 def separator(x,onset,offset,epsilon,gamma,mu):
     res = []
     orig_gamma = gamma
-#    print ("separator start")
     while len(onset) > epsilon * (len(onset)+len(offset)) and gamma > 0.001:
         pda = discrimination(x,onset,offset,True,gamma)
         nda = discrimination(x,onset,offset,False,gamma)
@@ -177,12 +132,6 @@ def separator(x,onset,offset,epsilon,gamma,mu):
         else:
 #            print ("*** no improvement ***")
             gamma = orig_gamma * gamma
-#        print('  F = {}, N = {}, P = {}'.format(len(onset),len(onset)+len(offset),N))
-#        print('  precision = {}, recall = {}, gamma = {}'.format(
-#            float(len(offset))/(len(onset)+len(offset)),
-#            float(len(offset))/N,
-#            gamma))
-#    print ("separator end")
     return res
 
 #
@@ -242,7 +191,6 @@ def ndseparator(x,onset,offset,epsilon,gamma,mu) -> List[Tuple[Tuple,float,bool]
 #
 
 def slice_ndseparator(ndx,ndonset,ndoffset,epsilon,gamma,mu,cone=None):
-    print ('cone = {}'.format(cone))
     if cone is not None:
         ndoffset = ndoffset[(slice(None),)+cone]
         ndonset = ndonset[(slice(None),)+cone]
@@ -257,14 +205,12 @@ def slice_ndseparator(ndx,ndonset,ndoffset,epsilon,gamma,mu,cone=None):
 def interpolant_int(train_eval,test_eval,l1,x,l2,pred,
                     epsilon,gamma,mu,cone=None,samps=None):
     global _ttime
-    print ('l2 = {}'.format(l2))
     train_eval.set_pred(l2,pred)
     before = time.time()
     psamps2,nsamps2 = train_eval.split(l1) if samps is None else samps
     res = slice_ndseparator(x,nsamps2,psamps2,epsilon,gamma,mu,cone)
     _ttime += (time.time()-before)
     print ("interpolant: {}".format(res))
-#    check_itp_pred(res,x)
     train_error = check_itp(train_eval,l1,itp_pred(res),l2,pred)
     describe_error("training",train_error)
     test_error = check_itp(test_eval,l1,itp_pred(res),l2,pred)
@@ -317,7 +263,6 @@ def interpolant(train_eval:ModelEval,test_eval:ModelEval,l1:int,inp:np.ndarray,
 
     global _ttime,_ensemble_size,_use_random_subspace,_random_subspace_size
     epsilon = 1.0 - alpha
-    print ('epsilon,gamma,mu,ensemble_size = {},{},{},{}'.format(epsilon,gamma,mu,ensemble_size))
     _ttime = 0.0
     _ensemble_size = ensemble_size
     _use_random_subspace = ensemble_size > 1
@@ -351,9 +296,7 @@ def get_cone(model,n,n1,slc) -> Tuple:
 def get_pred_cone(model,lpred,layer = -1) -> Tuple:
     shape = model.layer_shape(lpred.layer)
     cone = lpred.pred.cone(shape[1:])
-    print ('cone= {}'.format(cone))
     slc = (tuple(x.start for x in cone),tuple(x.stop-1 for x in cone))
-    print ('slc= {}'.format(slc))
     return get_cone(model,layer,lpred.layer,slc)
 
 # Given a predicate `pred` over a slice `slc`, return the
@@ -378,7 +321,6 @@ def unslice_coord(slc,coord):
 
 def check_itp(m,l1,p1,l2,p2):
     prediction = vect_eval(p1,m.eval(l1))
-    print ('checkitp: l2 = {}'.format(l2))
     result = vect_eval(p2,m.eval(l2))
     failure = np.logical_and(prediction,np.logical_not(result))
     F = np.count_nonzero(failure)

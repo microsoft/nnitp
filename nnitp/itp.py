@@ -38,13 +38,6 @@ def itp_conj(*args):
 def bound(idx,val,pos):
     return (lambda x: x[idx] < val) if pos else (lambda x: x[idx] > val)
 
-def check_itp_pred(res,x):
-    t = itp_pred(res)(x)
-    # print ("pred: {}".format(res))
-    # print ("data: {}".format(x))
-    # print ("value: {}".format(t))
-    return t
-
 # Weaken a predicate slightly to account for rounding error
 
 def relax_itp_pred(pred):
@@ -82,7 +75,6 @@ class BoundPredicate(Predicate):
         return data[self.var] >= self.val if self.pos else data[self.var] <= self.val
     def map(self,data):
         vals = data[(slice(None),)+self.var]
-        print ('vals.shape = {}'.format(vals.shape))
         return vals >= self.val if self.pos else vals <= self.val
     def __init__(self,var:Tuple[int,...],val:float,pos:bool):
         self.var,self.val,self.pos = var,val,pos
@@ -157,7 +149,6 @@ class is_max(Predicate):
         return 'is_max({})'.format(self.unit)
     def cone(self,shape:Tuple[int,...]):
         res = tuple(slice(0,x) for x in  shape)
-        print ('is_max cone = {}'.format(res))
         return res
             
 class LayerPredicate(object):
@@ -185,7 +176,6 @@ class AndLayerPredicate(object):
         for lpred in self.args:
             res = np.logical_and(res,lpred.eval(model))
         return res
-    
     
 
 # Interpolation log files

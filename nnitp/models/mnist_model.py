@@ -19,5 +19,5 @@ def get_data():
 def get_model():
     return KerasModel(load_model('mnist_model.h5'))
 
-params = {'size':100,'alpha':0.98,'gamma':0.6,'mu':0.9}
+params = {'size':100,'alpha':0.98,'gamma':0.6,'mu':0.9,'layers':[2]}
     

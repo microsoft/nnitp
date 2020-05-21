@@ -3,7 +3,8 @@
 #
 
 import os
-    
+import numpy as np
+
 # Code for fetching models and datasets.
 #
 # TODO: this is dependent on Keras framework.
@@ -40,7 +41,6 @@ for fname in os.listdir(model_dir):
     if fname.endswith(suffix):
         modname = fname[0:-3]
         module = __import__('nnitp.models.'+modname)
-        print (module.__dict__)
         name = fname[0:-len(suffix)]
         datasets[name] = module.models.__dict__[modname]
         
@@ -63,7 +63,6 @@ class DataModel(object):
             module = datasets[name]
             cwd = os.getcwd()
             os.chdir(model_dir)
-            print (module.__dict__)
             self.model = module.get_model()
             (self.x_train, self.y_train), (self.x_test, self.y_test) = module.get_data()
             self.params = module.params if hasattr(module,'params') else {}
@@ -91,3 +90,54 @@ def compute_activation(model,lidx,test):
 # Here, `input_shape` is the shape of the tensor, and `unit` is the
 # index to an element of the tensor flattened into a vector.
 
+    
+# Object for evaluating a model on an input set and caching the
+# results. The constructor takes a model and some input data.  The
+# `eval` method returns the activation value of layer `idx`. The method
+# `set_pred` records a predicate `p` over layer `idx`. The method
+# `split` returns a pair consisting of the the activations at layer `idx`
+# when the predicate is true/false. Method `indices` returns a vector
+# of the indices satisfying `p`.
+
+class ModelEval(object):
+    def __init__(self,model,data):
+        self.model,self.data = model,data
+        self.eval_cache = dict()
+    def eval(self,idx):
+        if idx in self.eval_cache:
+            return self.eval_cache[idx]
+        print("evaluating layer {}".format(idx))
+        # Evaluate in batches of 10000 to avoid memout
+        res = np.concatenate([compute_activation(self.model,idx,self.data[base:base+10000])
+                              for base in range(0,len(self.data),10000)])
+        print("done")
+        self.eval_cache[idx] = res
+        return res
+    def set_pred(self,idx,p):
+        self.split_cache = dict()
+        self.cond = vect_eval(p,self.eval(idx))
+    def set_layer_pred(self,lp):
+        self.split_cache = dict()
+        self.cond = lp.eval(self)
+    def split(self,idx):
+        if idx in self.split_cache:
+            return self.split_cache[idx]
+        def select(c):
+            return np.compress(c,self.eval(idx),axis=0)
+        res = (select(self.cond),select(np.logical_not(self.cond)))
+        self.split_cache[idx] = res
+        return res
+    def indices(self):
+        return np.compress(self.cond,np.arange(len(self.cond)))
+    def eval_one(self,idx,input):
+        data = input.reshape(1,*input.shape)
+        return compute_activation(self.model,idx,data)[0]
+
+#
+# Evaluate a predicate on a vector. 
+#
+# TODO: replace this with Predicate.map
+
+def vect_eval(p,data):
+    return np.array(list(map(p,data)))
+        
