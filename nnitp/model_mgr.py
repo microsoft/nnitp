@@ -2,8 +2,10 @@
 # Copyright (c) Microsoft Corporation.
 #
 
+import sys
 import os
 import numpy as np
+from importlib import import_module
 
 # Code for fetching models and datasets.
 #
@@ -36,13 +38,17 @@ def unflatten_unit(input_shape,unit):
 
 datasets = {}
 suffix = '_model.py'
-model_dir = os.path.join(os.path.dirname(__file__),'models')
-for fname in os.listdir(model_dir):
-    if fname.endswith(suffix):
-        modname = fname[0:-3]
-        module = __import__('nnitp.models.'+modname)
-        name = fname[0:-len(suffix)]
-        datasets[name] = module.models.__dict__[modname]
+model_path = [os.path.join(os.path.dirname(__file__),'models'),'.']
+orig_sys_path = sys.path
+sys.path.extend(model_path)
+for dir in model_path:
+    for fname in os.listdir(dir):
+        if fname.endswith(suffix):
+            modname = fname[0:-3]
+            module = import_module(modname)
+            name = fname[0:-len(suffix)]
+            datasets[name] = module
+sys.path = orig_sys_path
         
 # Class `DataModel` is a combination of a dataset (training and test)
 # and a trained model. 
@@ -62,6 +68,7 @@ class DataModel(object):
         if name is not None:
             module = datasets[name]
             cwd = os.getcwd()
+            model_dir = os.path.dirname(module.__file__)
             os.chdir(model_dir)
             self.model = module.get_model()
             (self.x_train, self.y_train), (self.x_test, self.y_test) = module.get_data()

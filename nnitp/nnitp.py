@@ -529,8 +529,6 @@ class MainWindow(HasTraits):
         self.update()
 
 def list_elems(l1,l2):
-    print ('l1 = {}'.format(l1))
-    print ('l2 = {}'.format(l2))
     return [l1[i] for i in l2 if i >= 0 and i < len(l1)]
 
 def main():

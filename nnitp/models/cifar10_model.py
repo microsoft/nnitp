@@ -1,6 +1,6 @@
 import numpy
 from keras.models import load_model
-from nnitp.nnitp_keras import KerasModel
+from nnitp.keras import Wrapper
 
 # Fetch the CIFAR10 dataset, normalized with mean=0, std = 1
 
@@ -20,7 +20,7 @@ def get_data():
 def get_model():
     model = load_model('cifar10_model.h5')
 #    model.summary()
-    return KerasModel(model)
+    return Wrapper(model)
 
 params = {'size':20000,'alpha':0.95,'gamma':0.6,'mu':0.9,'layers':[6,14]}
     

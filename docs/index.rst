@@ -18,8 +18,11 @@ convolutional neural networks for image classification, using the
    :maxdepth: 2
    :caption: Contents:
 
-   using_nnitp
+   introduction
+   installation
+   quick_start
    preparing_models
+   using_nnitp
 
 
 Indices and tables
