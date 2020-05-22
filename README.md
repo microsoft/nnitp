@@ -6,10 +6,8 @@ using Bayesian interpolants. The basic technique is described in
 convolutional neural networks for image classification, using the
 [Keras](https://keras.io/) framework.
 
-## Installation from source
-
-    $ sudo python3 setup.py install
-
+Documentation on nnitp can be found
+[here](https://nnitp.readthedocs.io/en/latest/)
 
 
 # Contributing
