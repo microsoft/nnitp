@@ -42,7 +42,7 @@ images. When the computation is finished, you will see a message like this::
 
 Nnitp has computed an `interpolant` at layer 14. This is a fact about
 the activation of the layer for this image that predicts a
-calssification of `airplane` with fairly high precision. That is,
+classification of `airplane` with fairly high precision. That is,
 given interpolant condition, the probability of a test set image
 being classified as an airplane is 0.985, while the probability over
 test set images is 0.872. Because the interpolant was learned over the
@@ -118,7 +118,7 @@ add images of airplanes over more varied backgrounds to the training
 set.
 
 It's also interesting to note that the individual units within the
-network are nearly uninterpretable as features. To get a sens of this,
+network are nearly uninterpretable as features. To get a sense of this,
 left-click on the image of that cat's face in the left column, row
 three, and select the menu item `Examples`. This will show some images
 that satisfy the interpolants constraint on just one unit. Here's some
