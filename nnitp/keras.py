@@ -6,8 +6,8 @@
 # Keras backend for nnitp
 #
 
-from keras import backend as K
-from keras.layers import Conv2D, Flatten, MaxPooling2D, Dense
+from tensorflow.compat.v1.keras import backend as K
+from tensorflow.compat.v1.keras.layers import Conv2D, Flatten, MaxPooling2D, Dense
 from typing import Tuple
 from .model_mgr import unflatten_unit
 

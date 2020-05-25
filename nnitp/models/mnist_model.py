@@ -1,5 +1,5 @@
 import tensorflow as tf
-from keras.models import load_model
+from tensorflow.compat.v1.keras.models import load_model
 from nnitp.keras import Wrapper
 
 # Fetch the MNIST dataset, normalize to range [0.0,1.0)

@@ -1,11 +1,11 @@
 import numpy
-from keras.models import load_model
+from tensorflow.keras.models import load_model
 from nnitp.keras import Wrapper
 
 # Fetch the CIFAR10 dataset, normalized with mean=0, std = 1
 
 def get_data():
-    from keras.datasets import cifar10
+    from tensorflow.keras.datasets import cifar10
     (x_train, y_train), (x_test, y_test) = cifar10.load_data()
     x_train = x_train.astype('float32')
     x_test = x_test.astype('float32')

@@ -26,11 +26,11 @@ setup(name='nnitp',
       packages = ['nnitp','nnitp.models'],
       package_data={'nnitp':['models/*.h5',]},
       install_requires=[
-          'keras',
+          'wheel',
           'traitsui',
           'numpy',
           'matplotlib',
-          'tensorflow==1.14',
+          'tensorflow',
       ] + (['PyQt5'] if platform.system() == 'Windows' else []) ,
       entry_points = {
         'console_scripts': ['nnitp=nnitp.nnitp:main',],
