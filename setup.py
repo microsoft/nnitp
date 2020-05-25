@@ -30,8 +30,9 @@ setup(name='nnitp',
           'traitsui',
           'numpy',
           'matplotlib',
-      ],
+          'tensorflow==1.14',
+      ] + (['PyQt5'] if platform.system() == 'Windows' else []) ,
       entry_points = {
-        'console_scripts': ['nnitp=nnitp:main',],
+        'console_scripts': ['nnitp=nnitp.nnitp:main',],
       },
       zip_safe=False)
