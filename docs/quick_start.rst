@@ -121,7 +121,7 @@ It's also interesting to note that the individual units within the
 network are nearly uninterpretable as features. To get a sense of this,
 left-click on the image of that cat's face in the left column, row
 three, and select the menu item `Examples`. This will show some images
-that satisfy the interpolants constraint on just one unit. Here's some
+that satisfy the interpolant's constraint on just one unit. Here's some
 of what we see:
 
 .. image:: quick_start_7.png
