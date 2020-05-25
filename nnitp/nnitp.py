@@ -57,7 +57,7 @@ class InterpolantThread(Thread):
     data_model : DataModel
     
     def run(self):
-        self.top.message('Computing interpolant"{}"...\n'.format(self.name))
+        self.top.message('Computing interpolant...\n')
         with self.data_model.session():
             spec = self.spec
             itp,stats = interpolant(spec.train_eval,spec.test_eval,spec.layer,
@@ -275,6 +275,7 @@ class InitState(State):
             sub.imshow(img)
             sub.axis('off')
             sub.identifier = FigMetaData(idx,img,self.conc)
+        figure.subplots_adjust(wspace=0.1, hspace=0.1, left=0.0, right=1.0, top=1.0, bottom=0.0)
         figure.canvas.draw()
 
     # When the user clicks on an image in the figure, we set that
@@ -361,8 +362,9 @@ class NormalState(State):
                     xcenter = (slc[1].start + slc[1].stop)/2.0
                     pixel = img[int(ycenter),int(xcenter)]
                     c = 'black' if np.mean(pixel) >= 0.5 else 'white'
-                    sub.text(xcenter,ycenter,str(sidx),
+                    sub.text(xcenter,ycenter,str(sidx),fontsize=11,
                              verticalalignment='center', horizontalalignment='center', color=c)
+        figure.subplots_adjust(wspace=0.1, hspace=0.1, left=0.0, right=1.0, top=1.0, bottom=0.0)
         figure.canvas.draw()
 
     # When the user selects an image we compute an interpolant for the
@@ -456,7 +458,7 @@ class MainWindow(HasTraits):
     back = Button()
 
     view = View(
-        Item('display',show_label=False, style='custom'),Tabbed(
+        Item('display',show_label=False, style='custom',style_sheet='*{font-size:11pt}'),Tabbed(
             Group('model', 'layers', label = 'Model'),
             Group(Group('category','restrict',Item('back',show_label=False),
                         orientation='horizontal',style='simple'),
@@ -465,7 +467,7 @@ class MainWindow(HasTraits):
                         Item('percentile',style='simple'),orientation='horizontal'),
                   Item('figure', editor=MPLFigureEditor(),
                        show_label=False, springy=True), label='Images'),
-            style='custom'), resizable=True)
+            style='custom', style_sheet='*{font-size:11pt}'), resizable=True)
     
     # List of availaible layers, used by `layers`, above
     avail = t.List([])
