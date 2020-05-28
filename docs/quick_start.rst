@@ -126,7 +126,7 @@ of what we see:
 
 .. image:: quick_start_7.png
 
-Some images regions in the third row do indeed contain a diagonal
+Some image regions in the third row do indeed contain a diagonal
 edge, but its very hard to generalize about these image fragments.
 This seems to be generally true about neural nets: an individual
 hidden unit is a very noisy predictor. We need to collect an ensemble
