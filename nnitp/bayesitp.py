@@ -2,7 +2,7 @@
 # Copyright (c) Microsoft Corporation.
 #
 
-from .model_mgr import unflatten_unit, ModelEval
+from .model_mgr import unflatten_unit, ModelEval, DataModel
 import numpy as np
 import math
 from .itp import itp_pred, bound, LayerPredicate
@@ -225,8 +225,7 @@ _ttime = 0.0
 #
 # Required parameters:
 #
-# - `train_eval`: model evaluator over the training set
-# - `test_eval`: model evaluator over the test set
+# - `data_model` : DataModel object providing model with training and test data
 # - `l1`: index of layer at which interpolant should be computed
 # - `inp`: input valuation (i.e., `A` is the predicate `model input = inp`)
 # - `lpred` : LayerPredicate representing the conclusion `B`
@@ -255,13 +254,14 @@ _ttime = 0.0
 #   The default function is `N/ensemble_size`.
 #   
 
-def interpolant(train_eval:ModelEval,test_eval:ModelEval,l1:int,inp:np.ndarray,
+def interpolant(data_model:DataModel,l1:int,inp:np.ndarray,
                 lpred:LayerPredicate,alpha:float=0.98,gamma:float=0.6,
                 mu:float=0.9,ensemble_size:int=1,
                 random_subspace_size:Optional[Callable[[int],int]]=None,
                 ) -> Tuple[LayerPredicate,Stats]:
 
     global _ttime,_ensemble_size,_use_random_subspace,_random_subspace_size
+    train_eval,test_eval = data_model._train_eval,data_model._test_eval
     epsilon = 1.0 - alpha
     _ttime = 0.0
     _ensemble_size = ensemble_size
@@ -357,5 +357,10 @@ def fraction(model:ModelEval,lpred:LayerPredicate):
     data = lpred.eval(model)
     return np.count_nonzero(data) / len(data)
     
-
+params = {
+    'alpha':float,
+    'gamma':float,
+    'mu':float,
+    'ensemble_size':int
+}
     

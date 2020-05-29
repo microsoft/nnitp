@@ -166,6 +166,10 @@ class LayerPredicate(object):
         return LayerPredicate(self.layer,Not(self.pred))
     def eval(self,model):
         return self.pred.map(model.eval(self.layer))
+    def sat(self,model):
+        model.set_pred(self.layer,self.pred)
+        res,_ = model.split(-1)
+        return res
 
 class AndLayerPredicate(object):
     args : Tuple[LayerPredicate,...]
@@ -177,7 +181,10 @@ class AndLayerPredicate(object):
             res = np.logical_and(res,lpred.eval(model))
         return res
     
+def output_category_predicate(data_model,category) -> LayerPredicate:
+    return LayerPredicate(data_model.output_layer(),is_max(category))
 
+    
 # Interpolation log files
 #
 # The log format:

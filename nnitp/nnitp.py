@@ -7,10 +7,11 @@ from threading import Thread
 from traits.api import HasTraits,String,Enum,Instance,Int,Button,Float,Bool
 import traits.api as t
 from traitsui.api import View, Item, SetEditor, Group, Tabbed, Handler
-from .model_mgr import DataModel,datasets,ModelEval
+from .model_mgr import DataModel,datasets
 from matplotlib.figure import Figure
 from .mpl_editor import MPLFigureEditor
-from .itp import LayerPredicate, is_max, AndLayerPredicate, BoundPredicate
+from .itp import LayerPredicate, AndLayerPredicate, BoundPredicate
+from .itp import output_category_predicate
 from typing import List,Optional,Tuple
 from .img import prepare_images
 from .bayesitp import Stats, interpolant, get_pred_cone, fraction, fractile
@@ -18,6 +19,8 @@ from copy import copy
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QMenu,QApplication
 from PyQt5.QtGui import QTextCursor
+import sys
+
 #
 # Computation threads. We do computations in threads to avoid freezing
 # the GUI.
@@ -45,8 +48,7 @@ class LoadThread(Thread):
 class InterpolantSpec(object):
     state : 'NormalState'  # new state after interpolant computed
     layer : int
-    train_eval : ModelEval
-    test_eval : ModelEval
+    data_model : DataModel
     kwargs : dict
 
 # This thread is for computing an interpolant. 
@@ -54,13 +56,12 @@ class InterpolantSpec(object):
 class InterpolantThread(Thread):
     top : 'MainWindow'
     spec : InterpolantSpec
-    data_model : DataModel
     
     def run(self):
         self.top.message('Computing interpolant...\n')
-        with self.data_model.session():
+        with self.spec.data_model.session():
             spec = self.spec
-            itp,stats = interpolant(spec.train_eval,spec.test_eval,spec.layer,
+            itp,stats = interpolant(self.spec.data_model,spec.layer,
                                              spec.state.input,spec.state.conc,**spec.kwargs)
             self.top.message('Interpolant: {}\n'.format(itp))
             self.top.message(str(stats))
@@ -68,9 +69,9 @@ class InterpolantThread(Thread):
             self.spec.state.stats = stats
             self.top.push_state(self.spec.state)
 
-    def __init__(self,top:'MainWindow',spec:InterpolantSpec,data_model:DataModel):
+    def __init__(self,top:'MainWindow',spec:InterpolantSpec):
         super(InterpolantThread, self).__init__()
-        self.top,self.spec,self.data_model = top,spec,data_model
+        self.top,self.spec = top,spec
 
 #        
 # GUI elements
@@ -119,11 +120,9 @@ class Model(HasTraits):
 
     # Internal state
 
-    data_model = Instance(DataModel)
+    data_model : DataModel = Instance(DataModel)
     worker_thread = Instance(Thread)
     _tf_session = None
-    _train_eval : ModelEval
-    _test_eval : ModelEval
     _param_names : List[str] = ['alpha','gamma','mu','size','ensemble_size']
 
     
@@ -146,10 +145,7 @@ class Model(HasTraits):
 
     def _size_changed(self):
         if self.data_model.loaded:
-            self._train_eval = ModelEval(self.data_model.model,
-                                                  self.data_model.x_train[:self.size])
-            self._test_eval = ModelEval(self.data_model.model,
-                                                 self.data_model.x_test[:self.size])
+            self.data_model.set_sample_size(self.size)
 
     def _data_model_changed(self):
         self.set_kwargs(self.data_model.params)
@@ -162,7 +158,8 @@ class Model(HasTraits):
                 else self.data_model.x_test)
         
     def model_eval(self):
-        return (self._train_eval if self.use_set == 'training' else self._test_eval)
+        return (self.data_model._train_eval if self.use_set == 'training'
+                else self.data_model._test_eval)
 
     def layers(self):
         if not self.data_model.loaded:
@@ -171,7 +168,7 @@ class Model(HasTraits):
                                for i,l in enumerate(self.data_model.model.layers)]
 
     def output_layer(self) -> int:
-        return len(self.data_model.model.layers) - 1
+        return self.data_model.output_layer()
         
     def get_inputs_pred(self,lpred:LayerPredicate,N=9):
         eval = self.model_eval()
@@ -195,11 +192,10 @@ class Model(HasTraits):
             spec = InterpolantSpec()
             spec.state = state
             spec.layer =  self.previous_layer(state.conc.layer)
-            spec.train_eval = self._train_eval
-            spec.test_eval = self._test_eval
+            spec.data_model = self.data_model
             kwargs = self.get_kwargs()
             spec.kwargs = dict((k,kwargs[k]) for k in ['alpha','gamma','mu','ensemble_size'])
-            self.worker_thread = InterpolantThread(self.top,spec,self.data_model)
+            self.worker_thread = InterpolantThread(self.top,spec)
             QApplication.setOverrideCursor(Qt.WaitCursor)
             self.worker_thread.start()
 
@@ -261,9 +257,8 @@ class InitState(State):
         # Get the inputs of selected category according to the model.
         category = self.top.category
         if self._displayed_category != category:
-            self.conc = LayerPredicate(self.top.model.output_layer(),is_max(category))
-            self.top.model.model_eval().set_pred(self.conc.layer,self.conc.pred)
-            self.compset,_ = self.top.model.model_eval().split(-1)
+            self.conc = output_category_predicate(self.top.model.data_model,category)
+            self.compset = self.conc.sat(self.top.model.model_eval())
             self._displayed_category = category
 
         rows,cols = 5,10
@@ -534,6 +529,11 @@ def list_elems(l1,l2):
     return [l1[i] for i in l2 if i >= 0 and i < len(l1)]
 
 def main():
+    if len(sys.argv) > 1:
+        verb = sys.argv[1]
+        if verb == 'compress':
+            from .compress import main as compress_main
+            return compress_main()
     MainWindow().configure_traits()
         
 # Display the main window

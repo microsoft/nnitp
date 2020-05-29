@@ -85,7 +85,13 @@ class DataModel(object):
     def session(self):
         return self.model.session()
     
-    
+    def set_sample_size(self,size:int):
+        self._train_eval = ModelEval(self.model,self.x_train[:size])
+        self._test_eval = ModelEval(self.model,self.x_test[:size])
+
+    def output_layer(self) -> int:
+        return len(self.model.layers) - 1
+        
 # Computes the activation of layer `lidx` in model `model` over input
 # data `test`. Layer index `-1` stands for the input data.
 #
