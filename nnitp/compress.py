@@ -40,12 +40,22 @@ def compress(name,**kwargs):
     pred = conc.eval(data_model._train_eval)
     itps = []
     
-    for idx in range(len(inputs)):
-        print ('Remaining: {}'.format(np.count_nonzero(pred)))
-        if pred[idx]:
-            itp,stats = interpolant(data_model,l1,inputs[idx],conc,**params)
+    if False:
+        for idx in range(len(inputs)):
+            if pred[idx]:
+                print ('Remaining: {}'.format(np.count_nonzero(pred)))
+                itp,stats = interpolant(data_model,l1,inputs[idx],conc,**params)
+                itps.append(itp)
+                pred = np.logical_and(pred,np.logical_not(itp.eval(model)))
+    else:
+        while pred.any():
+            print ('Remaining: {}'.format(np.count_nonzero(pred)))
+            A = np.compress(pred,inputs,axis=0)
+#            itp,stats = interpolant(data_model,l1,A,conc,weights=pred,**params)
+            itp,stats = interpolant(data_model,l1,A,conc,**params)
             itps.append(itp)
             pred = np.logical_and(pred,np.logical_not(itp.eval(model)))
+            
     print ('Interpolants:')
     for itp in itps:
         print (itp)
@@ -58,7 +68,7 @@ def main():
         exit(1)
     name = sys.argv[-1]
     try:            
-        compress(name)
+        compress(name,size=20000)
     except Error as err:
         print (err)
         exit(1)

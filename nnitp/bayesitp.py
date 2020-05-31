@@ -59,6 +59,17 @@ def bound_val(val,pos):
 def not_bound_val(val,pos):
     return (lambda x: x >= val) if pos else (lambda x: x <= val)
 
+# Find the upper gamma-th fractile of all units, over a vector of
+# activations. If pos is true, find the lower fractile.
+
+def fractile_all(gamma,pos,offset):
+    assert len(offset) > 0 and gamma > 0.0
+    minoff = int(math.ceil(gamma * len(offset))) - 1
+    offvals = offset.copy()
+    offvals.sort(axis=0)
+    return (np.flip(offvals,axis=0) if pos else offvals)[minoff]
+
+
 # Computes the discrimination of all the separators of the form
 # `x[idx] <> y[idx]` where `<>` is `<` is pos is true and `>` if
 # false. Here, `x` is a given tensor, `idx` is any tensor index and
@@ -72,13 +83,10 @@ def not_bound_val(val,pos):
 # The parameter `gamma` is the minimum fraction of points in the
 # offset that must be correctly classified.
 
-def discrimination(x,onset,offset,pos,gamma):
-    minoff = int(math.ceil(gamma * len(offset))) - 1
-    if minoff >= 0:
-        offvals = offset.copy()
-        offvals.sort(axis=0)
-        y = (np.flip(offvals,axis=0) if pos else offvals)[minoff]
-        x = np.where(bound_val(x,pos)(y),y,x)
+def discrimination(A,onset,offset,pos,gamma):
+    y = fractile_all(gamma,pos,offset)
+    x = fractile_all(gamma,pos,A)
+    x = np.where(bound_val(x,pos)(y),y,x)
     t = np.count_nonzero(np.apply_along_axis(not_bound_val(x,pos),1,onset),axis=0)
     f = np.count_nonzero(np.apply_along_axis(not_bound_val(x,pos),1,offset),axis=0)
 #    t.flatten(), f.flatten()
@@ -115,17 +123,18 @@ def remove(e,pred):
 # number of elements of `offset` for which the separator is true. The predictate is a
 # conjunction of bound predicates represented as a list.
 
-def separator(x,onset,offset,epsilon,gamma,mu):
+def separator(A,onset,offset,epsilon,gamma,mu):
     res = []
     orig_gamma = gamma
     while len(onset) > epsilon * (len(onset)+len(offset)) and gamma > 0.001:
-        pda = discrimination(x,onset,offset,True,gamma)
-        nda = discrimination(x,onset,offset,False,gamma)
+        pda = discrimination(A,onset,offset,True,gamma)
+        nda = discrimination(A,onset,offset,False,gamma)
         pos = cost(pda[0]) <= cost(nda[0])
         idx,val,d = pda[0] if pos else nda[0]
         if d[0] < len(onset):
             pred = (idx,val,pos)
             res.append(pred)
+            A = remove(A,pred)
             onset = remove(onset,pred)
             offset = remove(offset,pred)
             gamma = gamma * mu
@@ -141,18 +150,19 @@ def separator(x,onset,offset,epsilon,gamma,mu):
 _use_random_subspace = False
 _random_subspace_size = None
 
-def randseparator(x,onset,offset,epsilon,gamma,mu):
+def randseparator(A,onset,offset,epsilon,gamma,mu):
     if _use_random_subspace:
-        samp_size = (_random_subspace_size(len(x)) if _random_subspace_size is not None
-                     else int(math.sqrt(len(x))))
-        subset = np.array(random.sample(list(range(len(x))),samp_size))
-        sx = x[subset]
+        N = A.shape[1]
+        samp_size = (_random_subspace_size(N) if _random_subspace_size is not None
+                     else int(math.sqrt(N)))
+        subset = np.array(random.sample(list(range(N)),samp_size))
+        sA = A[:,subset]
         sonset = onset[:,subset]
         soffset = offset[:,subset]
-        res = separator(sx,sonset,soffset,epsilon,gamma,mu)
+        res = separator(sA,sonset,soffset,epsilon,gamma,mu)
         res = [(subset[idx],val,pos) for idx,val,pos in res]
     else:
-        res = separator(x,onset,offset,epsilon,gamma,mu)
+        res = separator(A,onset,offset,epsilon,gamma,mu)
     return res
 
 
@@ -160,10 +170,10 @@ def randseparator(x,onset,offset,epsilon,gamma,mu):
 
 _ensemble_size = 1
 
-def ensembleseparator(x,onset,offset,epsilon,gamma,mu):
+def ensembleseparator(A,onset,offset,epsilon,gamma,mu):
     res = []
     for idx in range(_ensemble_size):
-        res.extend(randseparator(x,onset,offset,epsilon,gamma,mu))
+        res.extend(randseparator(A,onset,offset,epsilon,gamma,mu))
     return res
 
 #
@@ -172,13 +182,14 @@ def ensembleseparator(x,onset,offset,epsilon,gamma,mu):
 # one-dimensional. 
 #
 
-def ndseparator(x,onset,offset,epsilon,gamma,mu) -> List[Tuple[Tuple,float,bool]]:
-    shape = x.shape
+def ndseparator(A,onset,offset,epsilon,gamma,mu) -> List[Tuple[Tuple,float,bool]]:
+    shape = A.shape[1:]
     if len(shape) > 1:
-        x = np.ravel(x)
+#        x = np.ravel(x)
+        A = A.reshape(len(A),-1)
         onset = onset.reshape(len(onset),-1)
         offset = offset.reshape(len(offset),-1)
-    res = ensembleseparator(x,onset,offset,epsilon,gamma,mu)
+    res = ensembleseparator(A,onset,offset,epsilon,gamma,mu)
     if len(shape) > 1:
         res = [(unflatten_unit(shape,idx),val,pos) for idx,val,pos in res]
     else:
@@ -190,25 +201,32 @@ def ndseparator(x,onset,offset,epsilon,gamma,mu) -> List[Tuple[Tuple,float,bool]
 # of the input tensors. If `cone` is None, no slicing is done.
 #
 
-def slice_ndseparator(ndx,ndonset,ndoffset,epsilon,gamma,mu,cone=None):
+def slice_ndseparator(ndA,ndonset,ndoffset,epsilon,gamma,mu,cone=None):
     if cone is not None:
         ndoffset = ndoffset[(slice(None),)+cone]
         ndonset = ndonset[(slice(None),)+cone]
-        ndx = ndx[cone]
-    res = ndseparator(ndx,ndonset,ndoffset,epsilon,gamma,mu)
+        ndA = ndA[(slice(None),)+cone]
+    res = ndseparator(ndA,ndonset,ndoffset,epsilon,gamma,mu)
     if cone is not None:
         res = unslice_itp(cone,res)
     return res
 
-# Internal implementation of `interpolant()`, see below.
+# Internal implementation of `interpolant()`, see below. If we are given weights,
+# we keep all of the positive samples with non-zero weights. TODO: we should pass the weights
+# down and use them to compute the fractiles and precisions. 
 
-def interpolant_int(train_eval,test_eval,l1,x,l2,pred,
-                    epsilon,gamma,mu,cone=None,samps=None):
-    global _ttime
+def interpolant_int(train_eval,test_eval,l1,A,l2,pred,
+                    epsilon,gamma,mu,cone=None,samps=None,weights=None):
+    global _ttime,_weights
     train_eval.set_pred(l2,pred)
     before = time.time()
     psamps2,nsamps2 = train_eval.split(l1) if samps is None else samps
-    res = slice_ndseparator(x,nsamps2,psamps2,epsilon,gamma,mu,cone)
+    _weights = weights
+    if _weights is not None:
+        _weights =  np.compress(train_eval.cond,_weights,axis=0)
+        assert len(_weights) == len(psamps2)
+        psamps2 = np.compress(_weights,psamps2,axis=0)
+    res = slice_ndseparator(A,nsamps2,psamps2,epsilon,gamma,mu,cone)
     _ttime += (time.time()-before)
     print ("interpolant: {}".format(res))
     train_error = check_itp(train_eval,l1,itp_pred(res),l2,pred)
@@ -227,7 +245,7 @@ _ttime = 0.0
 #
 # - `data_model` : DataModel object providing model with training and test data
 # - `l1`: index of layer at which interpolant should be computed
-# - `inp`: input valuation (i.e., `A` is the predicate `model input = inp`)
+# - `inps`: input valuations (i.e., the inputs satisfying `A`)
 # - `lpred` : LayerPredicate representing the conclusion `B`
 #
 # Options:
@@ -254,10 +272,11 @@ _ttime = 0.0
 #   The default function is `N/ensemble_size`.
 #   
 
-def interpolant(data_model:DataModel,l1:int,inp:np.ndarray,
+def interpolant(data_model:DataModel,l1:int,inps:np.ndarray,
                 lpred:LayerPredicate,alpha:float=0.98,gamma:float=0.6,
                 mu:float=0.9,ensemble_size:int=1,
                 random_subspace_size:Optional[Callable[[int],int]]=None,
+                weights = None,
                 ) -> Tuple[LayerPredicate,Stats]:
 
     global _ttime,_ensemble_size,_use_random_subspace,_random_subspace_size
@@ -268,10 +287,10 @@ def interpolant(data_model:DataModel,l1:int,inp:np.ndarray,
     _use_random_subspace = ensemble_size > 1
     _random_subspace_size = random_subspace_size or (lambda N: N//ensemble_size)
     l2,pred = lpred.layer,lpred.pred
-    x = train_eval.eval_one(l1,inp)
+    A = train_eval.eval_all(l1,inps)
     cone = get_pred_cone(train_eval.model,lpred,l1)
-    res,train_error,test_error = interpolant_int(train_eval,test_eval,l1,x,l2,pred,
-                                                 epsilon,gamma,mu,cone=cone)
+    res,train_error,test_error = interpolant_int(train_eval,test_eval,l1,A,l2,pred,
+                                                 epsilon,gamma,mu,cone=cone,weights=weights)
     conjs = [BoundPredicate(*x) for x in res]
     stats = Stats()
     stats.train_acc = train_error

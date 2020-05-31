@@ -145,6 +145,8 @@ class ModelEval(object):
     def eval_one(self,idx,input):
         data = input.reshape(1,*input.shape)
         return compute_activation(self.model,idx,data)[0]
+    def eval_all(self,idx,data):
+        return compute_activation(self.model,idx,data)
 
 #
 # Evaluate a predicate on a vector. 

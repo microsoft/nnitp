@@ -61,8 +61,9 @@ class InterpolantThread(Thread):
         self.top.message('Computing interpolant...\n')
         with self.spec.data_model.session():
             spec = self.spec
+            input = spec.state.input.reshape(1,*spec.state.input.shape)
             itp,stats = interpolant(self.spec.data_model,spec.layer,
-                                             spec.state.input,spec.state.conc,**spec.kwargs)
+                                             input,spec.state.conc,**spec.kwargs)
             self.top.message('Interpolant: {}\n'.format(itp))
             self.top.message(str(stats))
             self.spec.state.itp = itp
