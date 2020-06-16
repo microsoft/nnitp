@@ -1,6 +1,7 @@
 import numpy
 from tensorflow.keras.models import load_model
 from nnitp.keras import Wrapper
+from nnitp.datatype import Image
 
 # Fetch the CIFAR10 dataset, normalized with mean=0, std = 1
 
@@ -13,7 +14,7 @@ def get_data():
     std = numpy.std(x_train,axis=(0,1,2,3))
     x_train = (x_train-mean)/(std+1e-7)
     x_test = (x_test-mean)/(std+1e-7)
-    return (x_train, y_train), (x_test, y_test)
+    return (x_train, y_train), (x_test, y_test), Image()
 
 # Fetch the trained model
 

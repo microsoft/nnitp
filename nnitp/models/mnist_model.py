@@ -1,6 +1,7 @@
 import tensorflow as tf
 from tensorflow.compat.v1.keras.models import load_model
 from nnitp.keras import Wrapper
+from nnitp.datatype import Image
 
 # Fetch the MNIST dataset, normalize to range [0.0,1.0)
 
@@ -12,7 +13,7 @@ def get_data():
     x_test = x_test.astype('float32')
     x_train /= 255
     x_test /= 255
-    return (x_train, y_train), (x_test, y_test)
+    return (x_train, y_train), (x_test, y_test), Image()
 
 # Fetch the trained model
 

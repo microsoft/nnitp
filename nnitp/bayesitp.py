@@ -279,6 +279,7 @@ def interpolant(data_model:DataModel,l1:int,inps:np.ndarray,
                 weights = None,
                 ) -> Tuple[LayerPredicate,Stats]:
 
+    print ('inps.shape = {}'.format(inps.shape))
     global _ttime,_ensemble_size,_use_random_subspace,_random_subspace_size
     train_eval,test_eval = data_model._train_eval,data_model._test_eval
     epsilon = 1.0 - alpha
@@ -292,6 +293,9 @@ def interpolant(data_model:DataModel,l1:int,inps:np.ndarray,
     res,train_error,test_error = interpolant_int(train_eval,test_eval,l1,A,l2,pred,
                                                  epsilon,gamma,mu,cone=cone,weights=weights)
     conjs = [BoundPredicate(*x) for x in res]
+#    for inp in inps:
+#        if not And(*conjs)(train_eval.eval_one(l1,inp)):
+#            print ("interpolant not satisfied for input")
     stats = Stats()
     stats.train_acc = train_error
     stats.test_acc = test_error
@@ -339,6 +343,7 @@ def unslice_coord(slc,coord):
 # 
 
 def check_itp(m,l1,p1,l2,p2):
+    print ('p1 = {}, l1 = {}'.format(p1,l1))
     prediction = vect_eval(p1,m.eval(l1))
     result = vect_eval(p2,m.eval(l2))
     failure = np.logical_and(prediction,np.logical_not(result))

@@ -87,11 +87,15 @@ class BoundPredicate(Predicate):
         return tuple(slice(n,n+1) for n in idx)
     
 def cone_join(slices):
-    lbs = zip(tuple(x.start for x in y) for y in slices)
+    print (slices)
+    lbs = tuple(tuple(x.start for x in y) for y in slices)
+    print ('lbs = {}'.format(lbs))
+    lbs = tuple(zip(*lbs))
     lb = tuple(min(x) for x in lbs)
-    ubs = zip(tuple(x.end for x in y) for y in slices)
+    ubs = zip(*tuple(tuple(x.stop for x in y) for y in slices))
     ub = tuple(max(x) for x in ubs)
-    return (slice(x,y) for x,y in zip(lb,ub))
+    print ('lbs,lb,ubs,ub = {},{},{},{}'.format(lbs,lb,ubs,ub))
+    return tuple(slice(x,y) for x,y in zip(lb,ub))
 
 # Conjunction of predicates.
 
@@ -114,8 +118,10 @@ class And(Predicate):
     def conjs(self):
         return self.args
     def cone(self,shape:Tuple[int,...]):
-        return cone_join(list(x.cone(shape) for x in self.args))
-
+        res = cone_join(list(x.cone(shape) for x in self.args))
+        print ('cone res = {}'.format(res))
+        return res
+    
 # Negation of predicate.
 
 class Not(Predicate):

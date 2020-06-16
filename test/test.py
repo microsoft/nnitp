@@ -10,5 +10,8 @@
 #     $ pdb test.py args ...
 #
 
+from PyQt5.QtCore import pyqtRemoveInputHook
+pyqtRemoveInputHook()
+
 import nnitp.nnitp
 nnitp.nnitp.main()

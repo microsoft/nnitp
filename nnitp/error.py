@@ -13,7 +13,16 @@ class BadParameter(Error):
     def __str__(self):
         return 'Missing or invalid value for parameter "{}"'.format(self.name)
     
+#
+# Throw this exception if you can't load a model
+#
 
+class LoadError(Error):
+    def __init__(self,name):
+        self.name = name
+    def __str__(self):
+        return 'Load error: {}'.format(self.name)
+    
 # Filter parameters, checking types. This is used to get just the
 # keyword parameters of a particular module or function.
 

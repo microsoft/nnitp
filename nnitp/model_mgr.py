@@ -6,6 +6,7 @@ import sys
 import os
 import numpy as np
 from importlib import import_module
+from .error import Error
 
 # Code for fetching models and datasets.
 #
@@ -71,7 +72,7 @@ class DataModel(object):
             model_dir = os.path.dirname(module.__file__)
             os.chdir(model_dir)
             self.model = module.get_model()
-            (self.x_train, self.y_train), (self.x_test, self.y_test) = module.get_data()
+            (self.x_train, self.y_train), (self.x_test, self.y_test), self.datatype = module.get_data()
             self.params = module.params if hasattr(module,'params') else {}
             os.chdir(cwd)
             self.loaded = True
