@@ -34,22 +34,24 @@ def unflatten_unit(input_shape,unit):
         unit = unit//dim
     return res
 
-# This code scans the `models` directory and reads all of the modules
-# into a dictionary `datasets`.
-
 datasets = {}
-suffix = '_model.py'
-model_path = [os.path.join(os.path.dirname(__file__),'models'),'.']
-orig_sys_path = sys.path
-sys.path.extend(model_path)
-for dir in model_path:
-    for fname in os.listdir(dir):
-        if fname.endswith(suffix):
-            modname = fname[0:-3]
-            module = import_module(modname)
-            name = fname[0:-len(suffix)]
-            datasets[name] = module
-sys.path = orig_sys_path
+
+def import_models():
+    # This code scans the `models` directory and reads all of the modules
+    # into a dictionary `datasets`.
+
+    suffix = '_model.py'
+    model_path = [os.path.join(os.path.dirname(__file__),'models'),'.']
+    orig_sys_path = sys.path
+    sys.path.extend(model_path)
+    for dir in model_path:
+        for fname in os.listdir(dir):
+            if fname.endswith(suffix):
+                modname = fname[0:-3]
+                module = import_module(modname)
+                name = fname[0:-len(suffix)]
+                datasets[name] = module
+    sys.path = orig_sys_path
         
 # Class `DataModel` is a combination of a dataset (training and test)
 # and a trained model. 

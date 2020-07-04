@@ -9,7 +9,7 @@ import traits.api as t
 from traitsui.api import View, Item, SetEditor, Group, Tabbed, Handler
 from traitsui.qt4.editor import Editor
 from traitsui.qt4.basic_editor_factory import BasicEditorFactory
-from .model_mgr import DataModel,datasets
+from .model_mgr import DataModel,datasets,import_models
 from .itp import LayerPredicate, AndLayerPredicate, BoundPredicate
 from .itp import output_category_predicate
 from typing import List,Optional,Tuple
@@ -532,6 +532,7 @@ def list_elems(l1,l2):
     return [l1[i] for i in l2 if i >= 0 and i < len(l1)]
 
 def main():
+    import_models()
     if len(sys.argv) > 1:
         verb = sys.argv[1]
         if verb == 'compress':
