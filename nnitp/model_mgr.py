@@ -36,22 +36,34 @@ def unflatten_unit(input_shape,unit):
 
 datasets = {}
 
+def import_directory(dir,recursive=False):
+    global datasets
+    suffix = '_model.py'
+    orig_sys_path = sys.path
+    sys.path.append(dir)
+    print ('importing directory {}'.format(dir))
+    for fname in os.listdir(dir):
+        if fname.endswith(suffix):
+            modname = fname[0:-3]
+            print ('importing module {}'.format(modname))
+            module = import_module(modname)
+            name = fname[0:-len(suffix)]
+            datasets[name] = module
+    sys.path = orig_sys_path
+    if recursive:
+        for fname in os.listdir(dir):
+            sub = os.path.join(dir,fname)
+            if os.path.isdir(sub):
+                import_directory(sub,True)
+    
+
 def import_models():
     # This code scans the `models` directory and reads all of the modules
     # into a dictionary `datasets`.
 
-    suffix = '_model.py'
-    model_path = [os.path.join(os.path.dirname(__file__),'models'),'.']
-    orig_sys_path = sys.path
-    sys.path.extend(model_path)
-    for dir in model_path:
-        for fname in os.listdir(dir):
-            if fname.endswith(suffix):
-                modname = fname[0:-3]
-                module = import_module(modname)
-                name = fname[0:-len(suffix)]
-                datasets[name] = module
-    sys.path = orig_sys_path
+    import_directory(os.path.join(os.path.dirname(__file__),'models'),recursive=True)
+    import_directory('.')
+    print ('datasets: {}'.format(list(datasets.keys())))
         
 # Class `DataModel` is a combination of a dataset (training and test)
 # and a trained model. 
@@ -95,6 +107,12 @@ class DataModel(object):
     def output_layer(self) -> int:
         return len(self.model.layers) - 1
         
+    # TEMPORARY: we assume the model is a regression model if it has
+    # exactly one output.
+
+    def is_regression(self) -> bool:
+        return self.model.layer_shape(self.output_layer()) == (None,1)
+
 # Computes the activation of layer `lidx` in model `model` over input
 # data `test`. Layer index `-1` stands for the input data.
 #

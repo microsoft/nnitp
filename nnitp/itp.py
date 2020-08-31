@@ -59,7 +59,8 @@ class Predicate(metaclass=ABCMeta):
         return [self]
     @abstractmethod
     def cone(self,shape:Tuple[int,...]): pass
-        
+    @abstractmethod
+    def __eq__(self,other) -> bool: pass
     
 # A bound predicate states that `var >= val`, where `var` is a
 # variable `val` is a numeric value, when `pos` is true. When `pos` is
@@ -71,6 +72,11 @@ class BoundPredicate(Predicate):
     var : Tuple[int,...]
     val : float
     pos : bool
+    def __eq__(self,other) -> bool:
+        return (type(other) == type(self) and
+                other.var == self.var and
+                other.val == self.val and
+                other.pos == self.pos)
     def __call__(self,data:np.ndarray):
         return data[self.var] >= self.val if self.pos else data[self.var] <= self.val
     def map(self,data):
@@ -101,6 +107,9 @@ def cone_join(slices):
 
 class And(Predicate):
     args : List[Predicate]
+    def __eq__(self,other) -> bool:
+        return (type(other) == type(self) and
+                all(x==y for x,y in zip(self.args,other.args)))
     def __call__(self,data:np.ndarray):
         for pred in self.args:
             if not pred(data):
@@ -126,6 +135,8 @@ class And(Predicate):
 
 class Not(Predicate):
     arg : Predicate
+    def __eq__(self,other) -> bool:
+        return type(other) == type(self) and self.arg == other.arg
     def __call__(self,data:np.ndarray):
         return not self.arg(data)
     def map(self,data):
@@ -145,6 +156,8 @@ class Not(Predicate):
 class is_max(Predicate):
     def __init__(self,unit):
         self.unit = unit
+    def __eq__(self,other) -> bool:
+        return type(other) == type(self) and self.unit == other.unit
     def __call__(self,x):
         if self.unit < 0 or self.unit >= len(x):
             return False
@@ -160,6 +173,10 @@ class is_max(Predicate):
 class LayerPredicate(object):
     layer : int
     pred : Predicate
+    def __eq__(self,other) -> bool:
+        return (type(other) == type(self) and
+                self.layer == other.layer and
+                self.pred == other.pred)
     def __init__(self,layer:int,pred:Predicate):
         self.layer,self.pred = layer,pred
     def __str__(self):
@@ -179,6 +196,9 @@ class LayerPredicate(object):
 
 class AndLayerPredicate(object):
     args : Tuple[LayerPredicate,...]
+    def __eq__(self,other) -> bool:
+        return (type(other) == type(self) and
+                all(x==y for x,y in zip(self.args,other.args)))
     def __init__(self,*args: LayerPredicate):
         self.args = args
     def eval(self,model):
@@ -190,6 +210,10 @@ class AndLayerPredicate(object):
 def output_category_predicate(data_model,category) -> LayerPredicate:
     return LayerPredicate(data_model.output_layer(),is_max(category))
 
+def output_range_predicate(data_model,lower:float,upper:float) -> LayerPredicate:
+    return LayerPredicate(data_model.output_layer(),
+                          And(BoundPredicate((0,),lower,True),
+                              BoundPredicate((0,),upper,False)))
     
 # Interpolation log files
 #

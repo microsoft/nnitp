@@ -11,14 +11,17 @@ from traitsui.qt4.editor import Editor
 from traitsui.qt4.basic_editor_factory import BasicEditorFactory
 from .model_mgr import DataModel,datasets,import_models
 from .itp import LayerPredicate, AndLayerPredicate, BoundPredicate
-from .itp import output_category_predicate
+from .itp import output_category_predicate, output_range_predicate
 from typing import List,Optional,Tuple
 from .bayesitp import Stats, interpolant, get_pred_cone, fraction, fractile
 from copy import copy
-from PyQt5.QtCore import Qt,Signal,QObject
+from PyQt5.QtCore import Qt,pyqtSignal,QObject
 from PyQt5.QtWidgets import QMenu,QApplication,QFrame,QHBoxLayout,QWidget
 from PyQt5.QtGui import QTextCursor
 import sys
+
+
+import_models()
 
 #
 # Computation threads. We do computations in threads to avoid freezing
@@ -170,6 +173,9 @@ class Model(HasTraits):
     def output_layer(self) -> int:
         return self.data_model.output_layer()
         
+    def is_regression(self) -> bool:
+        return self.data_model.is_regression()
+
     def get_inputs_pred(self,lpred:LayerPredicate,N=9):
         eval = self.model_eval()
         eval.set_layer_pred(lpred)
@@ -234,8 +240,6 @@ class InitState(State):
     conc : Optional[LayerPredicate] = None
     compset : List[int] = []
 
-    _displayed_category : Optional[int] = None
-
     # Draw the grid corresponding to this state
 
     def render(self):
@@ -243,13 +247,17 @@ class InitState(State):
         # In the initial state, we display a choice of input images
         # satisfying in the chosen category and allow the user to select one.
 
+        dm = self.top.model.data_model
+        print ('self.top.regression: {}'.format(self.top.regression))
+        new_conc = (output_range_predicate(dm,self.top.lower,self.top.upper)
+                    if self.top.regression
+                    else output_category_predicate(dm,self.top.category))
+                    
         # Get the inputs of selected category according to the model.
-        category = self.top.category
-        if self._displayed_category != category:
-            self.conc = output_category_predicate(self.top.model.data_model,category)
+        if self.conc != new_conc:
+            self.conc = new_conc
             with self.top.model.data_model.session():
                 self.compset = self.conc.sat(self.top.model.model_eval())
-            self._displayed_category = category
 
         # Render the comparison set.
         
@@ -263,7 +271,6 @@ class InitState(State):
 
     def onclick(self,id,canvas,event):
         input_idx = id.input_idx[0]
-        print ('button = {}'.format(event.button()))
         if input_idx < len(self.compset):
             self.top.message('Selecting input image {}. Click the image to explain.\n'.format(id))
             new_state = NormalState()
@@ -272,9 +279,7 @@ class InitState(State):
             new_state.input = self.compset[input_idx]
             new_state.conc = self.conc
             new_state.category_pred = self.conc
-            print ('new_state.input.shape = {}'.format(new_state.input.shape))
             self.top.push_state(new_state)
-            print (2)
                 
     def on_axes_enter(self,id,canvas,event):
         pass
@@ -427,8 +432,8 @@ class ImageGrid(object):
 
 
 class Signals(QObject):
-    model_loaded = Signal()
-    push_state = Signal(State)
+    model_loaded = pyqtSignal()
+    push_state = pyqtSignal(State)
 
 # The main window. The view consists of the following elements:
 #
@@ -448,7 +453,10 @@ class MainWindow(HasTraits):
     model = Instance(Model)
     figure = Instance(ImageGrid,())
     layers = t.List(editor=SetEditor(name='avail'))
-    category = Int(0)
+    category = Int(0,auto_set=False)
+    lower = Float(0.0,auto_set=False)
+    upper = Float(200.0,auto_set=False)
+    regression = Bool(False)
     restrict = Bool()
     predicate = String()
     fraction = Float()
@@ -458,7 +466,11 @@ class MainWindow(HasTraits):
     view = View(
         Item('display',show_label=False, style='custom',style_sheet='*{font-size:11pt}'),Tabbed(
             Group('model', 'layers', label = 'Model'),
-            Group(Group('category','restrict',Item('back',show_label=False),
+            Group(Group(Item('category',visible_when = 'not regression'),
+                        Item('lower',visible_when = 'regression'),
+                        Item('upper',visible_when = 'regression'),
+                        'restrict',
+                        Item('back',show_label=False),
                         orientation='horizontal',style='simple'),
                   Group(Item('predicate',style='readonly'),
                         Item('fraction',style='readonly'),
@@ -492,6 +504,8 @@ class MainWindow(HasTraits):
         state = InitState()
         self.model._data_model_changed()  # update the interpolation parameters
         self.model._size_changed()        # update model evaluators
+        self.regression = self.model.is_regression()
+        print ('self.regression: {}'.format(self.regression))
         state.top = self
         self.avail = self.model.layers()
         layer_idxs = self.model.data_model.params.get('layers',[])
@@ -528,11 +542,17 @@ class MainWindow(HasTraits):
     def _category_changed(self):
         self.update()
 
+    def _lower_changed(self):
+        print ('got here')
+        self.update()
+
+    def _upper_changed(self):
+        self.update()
+
 def list_elems(l1,l2):
     return [l1[i] for i in l2 if i >= 0 and i < len(l1)]
 
 def main():
-    import_models()
     if len(sys.argv) > 1:
         verb = sys.argv[1]
         if verb == 'compress':

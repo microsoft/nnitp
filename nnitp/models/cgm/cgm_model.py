@@ -1,9 +1,9 @@
 import os.path
-from math import ceil
+from math import ceil,log
 import tensorflow as tf
-from keras.models import load_model, Model, Sequential
-from keras.layers import Dense, Input
-from keras.layers import concatenate
+from tensorflow.compat.v1.keras.models import load_model, Model, Sequential
+from tensorflow.compat.v1.keras.layers import Dense, Input
+from tensorflow.compat.v1.keras.layers import concatenate
 import wget
 import numpy as np
 from scipy.io import loadmat
@@ -52,13 +52,20 @@ def get_data():
     X = dataset[:,0:(37+8)]
     Y = dataset[:,(37+8)]
     
+    # Re-order columns so that glucose is before insulin, as expected
+    # by the network.
+
+    X = np.concatenate([X[:,37:(37+8)],X[:,0:37]],axis=1)
+    
     # Separate into 80% training, 20% test sample
 
     tsize = ceil(len(X) * 0.8)
     x_train = X[:tsize]
     x_test = X[tsize:]
+#    x_test = X
     y_train = Y[:tsize]
     y_test = Y[tsize:]
+#    y_test = Y
 
     # Describe the data so that nnitp can display it.
 
@@ -75,7 +82,6 @@ def get_data():
     # - carbs last 60 min
     
     description = Struct(
-        ('insulin',Series(5.0 * np.array(range(37)))),
         ('glucose',Struct(
             ('a',Numeric()),
             ('b',Numeric()),
@@ -84,10 +90,10 @@ def get_data():
             ('CGM change',Numeric()),
             ('sin t',Numeric()),
             ('cos t''age',Numeric()),
-            ('carbs 60',Numeric()),
-        )),
-    )   
+            ('carbs 60',Numeric()))),
+        ('insulin',Series(5.0 * np.array(range(37)))))
 
+    print ('x_train.shape = {}'.format(x_train.shape))
     return (x_train, y_train), (x_test, y_test), description
 
 # Fetch the trained model
@@ -106,8 +112,8 @@ def get_model():
         model.add(Dense(1))        
         print ('foo')
         model.compile(loss='mean_squared_error', optimizer='adam', metrics=['mean_squared_error'])
-        l1weights = np.transpose(block_diag(annots['W_insulin_1'],annots['W_gluc_1']))
-        l1biases = np.concatenate([annots['b_insulin_1'].reshape(8),annots['b_gluc_1'].reshape(8)])
+        l1weights = np.transpose(block_diag(annots['W_gluc_1'],annots['W_insulin_1']))
+        l1biases = np.concatenate([annots['b_gluc_1'].reshape(8),annots['b_insulin_1'].reshape(8)])
         model.layers[0].set_weights([l1weights,l1biases])
         model.layers[1].set_weights([np.transpose(annots['W_joint_1']),annots['b_joint_1'].reshape(16)])
         model.layers[2].set_weights([np.transpose(annots['W_joint_2']),annots['b_joint_2'].reshape(1)])
@@ -133,6 +139,8 @@ def get_model():
         wrap = Wrapper(model)
         print (y_test)
         print (wrap.compute_activation(2,x_test))
+        print (y_train)
+        print (wrap.compute_activation(2,x_train))
         _, accuracy = model.evaluate(x_test, y_test)
         print ('bar')
         print('Accuracy: %.2f' % (accuracy*100))
@@ -196,6 +204,7 @@ datadir = 'PSO4_Public_Dataset/DataTables'
 delimiter = '|'
 suffix = '.txt'
 outfile = 'cgm_data.csv'
+#outfile = 'toyInput.csv'
 
 # Read records from all files into list `records`. Each record is represented
 # by a map from field names to string values, with an additional 'file' field
@@ -353,6 +362,7 @@ def get_cgm_coeffs(time_vals,cgm_vals):
     mean = np.mean(time_vals)
     std = np.std(time_vals)
     ntvals = [(x-mean)/std for x in time_vals]
+    cgm_vals = [1.509*(log(BG) ** 1.084-5.381) for BG in cgm_vals]
     return list(np.polyfit(ntvals, cgm_vals, 3))
     
 # Get the CGM value at a given time, using linear interpolation
@@ -440,7 +450,7 @@ def create_csv_file():
     print('Creating CGM data file')
     get_records()
     with open(outfile,'w') as csvfile:
-        for idx in range(50000):
+        for idx in range(10):
             sample = make_sample()
             csvfile.write(','.join(map(str,sample))+'\n')
         
