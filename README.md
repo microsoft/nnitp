@@ -1,5 +1,7 @@
 # nnitp
 
+**Starting Sep. 5, 2020, active development of nnitp is moving to [https://github.com/kenmcmil/nnitp](https://github.com/kenmcmil/nnitp)**
+
 Nnitp is a tool for interpretability of neural network inferences
 using Bayesian interpolants. The basic technique is described in
 [this paper](https://arxiv.org/abs/2004.04198). It currently supports
