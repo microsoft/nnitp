@@ -152,7 +152,7 @@ def get_model():
 
 # Interpolation parameters
 
-params = {'size':20000,'alpha':0.98,'gamma':0.6,'mu':0.9,'layers':[1]}
+params = {'size':20000,'alpha':0.80,'gamma':0.6,'mu':0.9,'layers':[1]}
     
 # Here we have code to generate the NN input data from the raw dataset.
 # To create the network input, we sample random intervals from the
@@ -450,7 +450,7 @@ def create_csv_file():
     print('Creating CGM data file')
     get_records()
     with open(outfile,'w') as csvfile:
-        for idx in range(10):
+        for idx in range(10000):
             sample = make_sample()
             csvfile.write(','.join(map(str,sample))+'\n')
         

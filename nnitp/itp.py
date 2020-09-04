@@ -85,12 +85,17 @@ class BoundPredicate(Predicate):
     def __init__(self,var:Tuple[int,...],val:float,pos:bool):
         self.var,self.val,self.pos = var,val,pos
     def __str__(self):
-        idx = self.var if isinstance(self.var,tuple) else (self.var,)
-        return ('v({})'.format(','.join(str(x) for x in idx)) +
+        return (self.var_name() +
                 ('>=' if self.pos else '<=') + str(self.val))
     def cone(self,shape:Tuple[int,...]):
         idx:Tuple = self.var if isinstance(self.var,tuple) else tuple([self.var])
         return tuple(slice(n,n+1) for n in idx)
+    def var_val(self,data:np.ndarray):
+        return data[self.var]
+    def var_name(self):
+        idx = self.var if isinstance(self.var,tuple) else (self.var,)
+        return 'v({})'.format(','.join(str(x) for x in idx))
+        
     
 def cone_join(slices):
     print (slices)
@@ -189,6 +194,10 @@ class LayerPredicate(object):
         return LayerPredicate(self.layer,Not(self.pred))
     def eval(self,model):
         return self.pred.map(model.eval(self.layer))
+    def eval_one(self,model,x):
+        return self.pred(model.eval_one(self.layer,x))
+    def eval_all(self,model,data):
+        return self.pred.map(model.eval_all(self.layer.data))
     def sat(self,model):
         model.set_pred(self.layer,self.pred)
         res,_ = model.split(-1)

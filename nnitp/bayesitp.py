@@ -141,6 +141,7 @@ def separator(A,onset,offset,epsilon,gamma,mu):
         else:
 #            print ("*** no improvement ***")
             gamma = orig_gamma * gamma
+        print ('error = {}'.format(len(onset) / (len(onset)+len(offset))))
     return res
 
 #
