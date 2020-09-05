@@ -14,7 +14,7 @@ Install Git and Python 3::
 
 Download the source files from Github::
 
-    $ git clone https://github.com/microsoft/nnitp
+    $ git clone https://github.com/kenmcmil/nnitp
 
 Install the `nnitp` Python package::
 
@@ -33,11 +33,11 @@ because the necessary version of Tensorflow is not available.
 In a Git bash window:
 
     $ cd /c
-    $ git clone https://github.com/microsoft/nnitp
+    $ git clone https://github.com/kenmcmil/nnitp
 
 In a Windows cmd window:
 
-    > cd c:\
+    > cd c:\nnitp
     > pip install .
 
 
